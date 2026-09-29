@@ -4,7 +4,7 @@
   "icon": "assets/icon.svg",
   "tags": ["calendar", "memo", "notes", "workflow", "to-do"],
   "permissions": [],
-  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.5",
+  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.6",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
   "releaseNotes": "Month-view calendar with lunar dates, solar terms and statutory holiday markers. Notes are stored by the plugin's Go sidecar and can be exported to .xls or .txt and imported back."

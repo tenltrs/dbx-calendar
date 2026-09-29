@@ -74,6 +74,20 @@ The host sets `DBX_PLUGIN_DATA_DIR` on every sidecar. Notes live in `notes/<name
 
 The namespace is the connection id when the host addresses a connection, and the fixed string `workbench` otherwise. Without a data directory the sidecar still runs, but a note write is refused with an explicit error instead of a fake success, and the UI shows it.
 
+### AI tools
+
+The sidecar answers the assistant's two calls: `mcp/tools` publishes the catalogue and `mcp/call` runs one of them. Five tools are on offer — `list_notes` and `search_notes` read, `append_note`, `set_note` and `delete_note` write.
+
+`append_note` is the quick-capture path: it adds a line and keeps what is already on the day, and its date defaults to today, so "make a note of this" needs no date from the model. `set_note` replaces a day's whole note and therefore insists on being told which day.
+
+**The plugin declares a connection provider, and that is not decoration.** The host binds plugin tools to one of the plugin's open connections; with no provider there is no connection to bind to, and the assistant reports that the plugin has no open connection. Setting it up is one connection of type **Calendar Notes**, opened once.
+
+Storage stays pinned to the workbench namespace rather than following that connection. There is one notebook, and following the connection would move every note written before it existed into a different file, where it would look lost.
+
+Installing the plugin still exposes nothing. The user turns the tools on in **Plugin Center → Installed → Built-in AI tools**. The two read tools carry `readOnlyHint`, so they run straight away; the three writes pause for confirmation and show the exact arguments first — a plugin cannot opt out of that, and should not try.
+
+`external_tools` is false, so the tools reach DBX's own assistant only. Set it true to publish them on the external `dbx` MCP server as well, for Claude Code, Cursor and the like.
+
 ### Where exports go
 
 The host renders this UI in a sandboxed frame with an opaque origin, and a frame without `allow-downloads` **silently drops** an anchor click on a blob URL: nothing throws, and no file arrives. That route is therefore not an option inside DBX, which leaves the sidecar — an ordinary process, which can put the file wherever the user says.

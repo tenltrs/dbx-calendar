@@ -52,7 +52,7 @@ func serve(t *testing.T, instance *plugin, requests ...string) map[int]map[strin
 	input := bytes.NewBufferString(strings.Join(requests, ""))
 	var output, errors bytes.Buffer
 	server := dbxpluginsdk.NewServer(
-		dbxpluginsdk.Metadata{ID: "com.tenltrs.dbx-calendar", Version: "0.1.5"},
+		dbxpluginsdk.Metadata{ID: "com.tenltrs.dbx-calendar", Version: "0.1.6"},
 		instance,
 	).WithIO(input, &output, &errors)
 	if err := server.Serve(); err != nil {
@@ -204,5 +204,49 @@ func TestDataDirectoryLayout(t *testing.T) {
 				t.Fatal("expected no holiday directory in the data directory")
 			}
 		}
+	}
+}
+
+// The host drives the connection lifecycle around opening a workbench, and not
+// every call carries an id — the workbench entry has no connection to name.
+// Refusing those calls left the host waiting on a lifecycle it could not
+// complete, so the notebook opens regardless and the id only labels the
+// binding.
+func TestConnectionLifecycleToleratesAMissingId(t *testing.T) {
+	dir := t.TempDir()
+	instance := &plugin{
+		connections: map[string]*connNotes{},
+		notes:       newNotesStore(dir),
+		exports:     newExportStore(dir),
+	}
+
+	responses := serve(t, instance,
+		requestLine(1, "connection/test", map[string]any{}),
+		requestLine(2, "connection/connect", map[string]any{}),
+	)
+	for _, id := range []int{1, 2} {
+		if failure, failed := responses[id]["error"]; failed {
+			t.Fatalf("request %d failed: %#v", id, failure)
+		}
+	}
+
+	// A note written after connecting without an id is the same notebook the UI
+	// reads, which is the point of not partitioning storage.
+	responses = serve(t, instance, requestLine(1, "dbx-calendar/notes/set", map[string]any{
+		"date": "2026-09-29", "value": "written through a bare connect",
+	}))
+	if failure, failed := responses[1]["error"]; failed {
+		t.Fatalf("the write failed: %#v", failure)
+	}
+
+	responses = serve(t, instance, requestLine(1, "connection/disconnect", map[string]any{}))
+	if failure, failed := responses[1]["error"]; failed {
+		t.Fatalf("disconnect failed: %#v", failure)
+	}
+
+	responses = serve(t, instance, requestLine(1, "dbx-calendar/notes/list", map[string]any{}))
+	notes := responses[1]["result"].(map[string]any)["notes"].(map[string]any)
+	if notes["2026-09-29"] != "written through a bare connect" {
+		t.Fatalf("the note did not survive the lifecycle: %#v", notes)
 	}
 }

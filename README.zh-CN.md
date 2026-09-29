@@ -74,6 +74,20 @@ dbx-plugin dev --path . --port 5190
 
 命名空间在宿主按连接寻址时取连接 id，否则取固定字符串 `workbench`。没有数据目录时 sidecar 仍能运行，但写入备忘会返回明确错误而不是假装成功，UI 会把该错误显示出来。
 
+### AI 工具
+
+sidecar 响应 AI 助手的两个调用：`mcp/tools` 公布工具清单，`mcp/call` 执行其中一个。一共五个工具——`list_notes`、`search_notes` 读取，`append_note`、`set_note`、`delete_note` 写入。
+
+`append_note` 是随手记那条路：追加一行、保留当天已有内容，而且 `date` 缺省今天——所以「记一下 xxx」不需要模型自己去算日期。`set_note` 是整天替换，因此必须指名是哪一天。
+
+**插件声明了 connection provider，这不是装饰。** 宿主把插件工具绑定在插件的「已打开连接」上；没有 provider 就不存在可绑的连接，助手会报「该插件当前没有打开的连接」。配置成本是建一个 **日历笔记** 类型的连接并打开一次。
+
+存储**钉死在 workbench 命名空间**，不跟着这个连接走。笔记本只有一本；跟着连接走会把连接存在之前写的每一条备忘挪进另一个文件，看起来就像丢了。
+
+**装插件本身仍然不暴露任何东西。** 用户要在**插件中心 → 已安装 → 内置 AI 工具**里开启。两个读工具带 `readOnlyHint`，直接执行；三个写工具会暂停等用户确认，并先展示将要写入的完整参数——插件绕不过这个确认，也不该试图绕。
+
+`external_tools` 为 false，所以工具只进入 DBX 自带的助手。想同时在外部 `dbx` MCP 服务器（Claude Code、Cursor 等）上暴露，把它改成 true。
+
 ### 导出的文件落在哪里
 
 宿主把 UI 渲染在 **opaque origin 的 sandbox iframe** 里，而缺少 `allow-downloads` 的 frame 会**静默丢弃**对 blob URL 的 anchor 点击：不抛异常，也不产生文件。所以这条路在 DBX 里根本走不通，只剩 sidecar——它是普通进程，能把文件放到用户指定的任何地方。

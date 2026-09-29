@@ -41,23 +41,25 @@ func (plugin *plugin) Handle(
 			"persistence": plugin.notes.Persistence(),
 		}, nil
 	case "connection/connect":
-		connectionID, pluginError := requestConnectionID(values)
-		if pluginError != nil {
-			return nil, pluginError
-		}
-		if _, pluginError := plugin.openConnection(connectionID); pluginError != nil {
+		// No connection id is required. Every connection opens the same
+		// notebook, so an id only labels the binding; refusing a call that
+		// arrives without one would leave the host waiting on a lifecycle it
+		// cannot complete.
+		if _, pluginError := plugin.notesFor(values); pluginError != nil {
 			return nil, pluginError
 		}
 		return map[string]any{"success": true, "persistence": plugin.notes.Persistence()}, nil
 	case "connection/disconnect":
-		connectionID, pluginError := requestConnectionID(values)
-		if pluginError != nil {
-			return nil, pluginError
-		}
 		plugin.mutex.Lock()
-		delete(plugin.connections, connectionID)
+		delete(plugin.connections, workbenchNamespace)
 		plugin.mutex.Unlock()
 		return map[string]any{"success": true}, nil
+	case "mcp/tools":
+		// The host names these two without the plugin prefix: they are the
+		// assistant's entry points, not the UI's.
+		return map[string]any{"tools": mcpTools()}, nil
+	case "mcp/call":
+		return plugin.mcpCall(values)
 	case "dbx-calendar/ping":
 		return map[string]any{"ok": true, "plugin": "com.tenltrs.dbx-calendar", "language": "go", "connectionId": values["connectionId"]}, nil
 	case "dbx-calendar/notes/list":
@@ -171,12 +173,16 @@ func (plugin *plugin) Handle(
 	}
 }
 
-// notesFor resolves the per-connection handle. The plugin lock is released
-// before any file IO, so one slow connection cannot block the others. A pure
-// workbench plugin is addressed without a connection, which falls back to the
-// fixed workbench namespace.
-func (plugin *plugin) notesFor(values map[string]any) (*connNotes, *dbxpluginsdk.PluginError) {
-	connectionID := optionalConnectionID(values)
+// notesFor resolves the notebook handle. The plugin lock is released before any
+// file IO, so a slow connection cannot block the others.
+//
+// Storage is pinned to the workbench namespace rather than following whatever
+// connection the call arrived on. There is one notebook, not one per
+// connection: the connection exists because the host binds its AI tools to one,
+// and following it here would move every note written before that connection
+// existed into a different file, where it would look lost.
+func (plugin *plugin) notesFor(_ map[string]any) (*connNotes, *dbxpluginsdk.PluginError) {
+	connectionID := workbenchNamespace
 	plugin.mutex.RLock()
 	notes, ok := plugin.connections[connectionID]
 	plugin.mutex.RUnlock()
@@ -206,14 +212,6 @@ func notesError(err error) *dbxpluginsdk.PluginError {
 		return dbxpluginsdk.NewError(-32002, "Notes cannot be persisted: plugin data directory is unavailable")
 	}
 	return dbxpluginsdk.NewError(-32602, err.Error())
-}
-
-func requestConnectionID(values map[string]any) (string, *dbxpluginsdk.PluginError) {
-	connectionID := optionalConnectionID(values)
-	if connectionID == "" {
-		return "", dbxpluginsdk.NewError(-32602, "Missing connection id")
-	}
-	return connectionID, nil
 }
 
 // decodeNoteMap reads the whole note set an import sends. Keys are validated by
@@ -260,7 +258,7 @@ func main() {
 
 	metadata := dbxpluginsdk.Metadata{
 		ID:           "com.tenltrs.dbx-calendar",
-		Version:      "0.1.5",
+		Version:      "0.1.6",
 		Capabilities: []string{"commands"},
 	}
 	server := dbxpluginsdk.NewServer(metadata, &plugin{

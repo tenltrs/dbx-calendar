@@ -3,11 +3,11 @@
   "manifest_version": 1,
   "id": "com.tenltrs.dbx-calendar",
   "name": "Calendar Notes",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "tenltrs",
   "description": "A minimal month-view calendar for keeping day-by-day notes.",
   "icon": "assets/icon.svg",
-  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.5",
+  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.6",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "permissions": [],
   "engines": { "dbx": ">=0.6.0", "host_api": "1" },
@@ -22,6 +22,24 @@
       "label": "Calendar Notes",
       "description": "Jot notes on the days of a month grid.",
       "icon": "assets/icon.svg"
+    },
+    {
+      "type": "connection-provider",
+      "id": "com.tenltrs.dbx-calendar.connection",
+      "label": "Calendar Notes",
+      "description": "The notebook the assistant reads and writes.",
+      "icon": "assets/icon.svg",
+      "database_type": "calendar",
+      "fields": [],
+      "workbench": "com.tenltrs.dbx-calendar.workbench",
+      "capabilities": ["test", "connect", "disconnect"]
+    },
+    {
+      "type": "mcp",
+      "id": "com.tenltrs.dbx-calendar.ai",
+      "description": "Read and write calendar notes from the assistant.",
+      "ai_tools": true,
+      "external_tools": false
     }
   ],
   "localizations": {
@@ -32,6 +50,13 @@
         "com.tenltrs.dbx-calendar.workbench": {
           "label": "日历笔记",
           "description": "在月视图日历上按天记录备忘。"
+        },
+        "com.tenltrs.dbx-calendar.connection": {
+          "label": "日历笔记",
+          "description": "AI 助手读写的那本笔记本。"
+        },
+        "com.tenltrs.dbx-calendar.ai": {
+          "description": "让 AI 助手读写日历备忘。"
         }
       }
     }
