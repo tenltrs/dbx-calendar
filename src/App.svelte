@@ -15,6 +15,7 @@
   import previousIcon from "../assets/previous.svg";
   import nextIcon from "../assets/next.svg";
   import { dayInfo } from "./lunar.js";
+  import { highlightMatches, navigateSearchResults, searchNotes } from "./search.js";
   import { invoke, whenReady, hostLocale, bridgeAvailable } from "./dbx.js";
 
   /** Vite inlines small SVGs as data URIs whose payload contains single quotes,
@@ -27,6 +28,10 @@
       prev: "Previous month",
       next: "Next month",
       today: "Today",
+      chooseMonth: "Choose month",
+      previousYear: "Previous year",
+      nextYear: "Next year",
+      yearLabel: "Year",
       weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
       editorTitle: "Edit entry",
       placeholder: "Write something for this day…",
@@ -39,6 +44,16 @@
       dayOff: "Off",
       workday: "Work",
       edit: "double-click to edit",
+      search: "Search",
+      searchTitle: "Search notes",
+      searchPlaceholder: "Search note content…",
+      searchPrompt: "Enter a keyword to search notes",
+      searchEmpty: "No matching notes",
+      searchCount: (count) => `${count} ${count === 1 ? "match" : "matches"}`,
+      selectedDateLabel: "selected date",
+      closeSearch: "Close search",
+      searchHelpNavigate: "navigate",
+      searchHelpClose: "close",
       menu: "Menu",
       colDate: "Date",
       colContent: "Note",
@@ -86,6 +101,10 @@
       prev: "上个月",
       next: "下个月",
       today: "今天",
+      chooseMonth: "选择年月",
+      previousYear: "上一年",
+      nextYear: "下一年",
+      yearLabel: "年份",
       weekdays: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
       editorTitle: "编辑内容",
       placeholder: "写点什么…",
@@ -98,10 +117,20 @@
       dayOff: "休",
       workday: "班",
       edit: "双击编辑",
+      search: "搜索",
+      searchTitle: "搜索笔记",
+      searchPlaceholder: "输入关键词搜索笔记…",
+      searchPrompt: "输入关键词搜索笔记",
+      searchEmpty: "没有找到匹配的笔记",
+      searchCount: (count) => `找到 ${count} 条`,
+      selectedDateLabel: "选中日期",
+      closeSearch: "关闭搜索",
+      searchHelpNavigate: "切换结果",
+      searchHelpClose: "关闭",
       menu: "菜单",
       colDate: "日期",
       colContent: "内容",
-      sheetName: "备忘",
+      sheetName: "笔记",
       exported: (count) => `已导出 ${count} 条`,
       imported: (count, total, skipped) =>
         [`已导入 ${count} 条`, `共 ${total} 条`, skipped ? `跳过 ${skipped} 行` : null].filter(Boolean).join("，"),
@@ -132,7 +161,7 @@
       export: "导出",
       chooseFile: "选择文件",
       unsupportedFile: "只支持 .xls 和 .xlsx 文件",
-      noStorage: "此处无法保存备忘，页面关闭后会丢失，请先导出保存。",
+      noStorage: "此处无法保存笔记，页面关闭后会丢失，请先导出保存。",
       conflicts: (count) => `冲突 ${count} 条`,
       modeOverwrite: "覆盖",
       modeMerge: "合并",
@@ -148,6 +177,13 @@
   let viewYear = $state(now.getFullYear());
   let viewMonth = $state(now.getMonth());
 
+  let monthPickerOpen = $state(false);
+  let monthPickerYear = $state(String(now.getFullYear()));
+  let monthPickerMonth = $state(now.getMonth());
+  let monthPickerEl = $state(null);
+  let monthPickerPanel = $state(null);
+  let monthPickerTrigger = $state(null);
+
   /** date key ("YYYY-MM-DD") -> note text */
   let notes = $state({});
   let editingKey = $state(null);
@@ -157,6 +193,15 @@
 
   let menuOpen = $state(false);
   let menuEl = $state(null);
+  let searchOpen = $state(false);
+  let searchQuery = $state("");
+  let searchInput = $state(null);
+  let searchButton = $state(null);
+  let suppressSearchFocusRing = $state(false);
+  /** True while the user is moving with the keyboard, so focus frames are wanted. */
+  let keyboardFocus = $state(false);
+  let activeSearchIndex = $state(0);
+  let selectedDate = $state(null);
   let fileInput = $state(null);
   let status = $state("");
   let statusTimer;
@@ -191,7 +236,17 @@
     }).format(new Date(viewYear, viewMonth, 1)),
   );
 
+  /** Short month names for the picker grid, localized with the rest of the UI. */
+  const monthNames = $derived(
+    Array.from({ length: 12 }, (_, month) =>
+      new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "short" }).format(
+        new Date(2024, month, 1),
+      ),
+    ),
+  );
+
   const weeks = $derived.by(() => buildWeeks(viewYear, viewMonth));
+  const searchResults = $derived(searchNotes(notes, searchQuery));
 
   /** Lunar date, solar term and holiday marker for the visible grid, resolved once per month. */
   const dayInfos = $derived.by(() => {
@@ -234,7 +289,98 @@
     viewMonth = now.getMonth();
   }
 
+  function openMonthPicker() {
+    menuOpen = false;
+    monthPickerYear = String(viewYear);
+    monthPickerMonth = viewMonth;
+    monthPickerOpen = true;
+  }
+
+  function closeMonthPicker({ restoreFocus = true } = {}) {
+    if (!monthPickerOpen) return;
+    monthPickerOpen = false;
+    if (restoreFocus) monthPickerTrigger?.focus();
+  }
+
+  function toggleMonthPicker() {
+    if (monthPickerOpen) closeMonthPicker();
+    else openMonthPicker();
+  }
+
+  /** The pending year, or null while the field is incomplete/out of range. */
+  function pickerYearValue() {
+    const year = Number(monthPickerYear);
+    return monthPickerYear.length === 4 && Number.isInteger(year) && year >= 1900 && year <= 2200
+      ? year
+      : null;
+  }
+
+  /** Steps the pending year without moving the calendar until a month is chosen. */
+  function stepPickerYear(delta) {
+    monthPickerYear = String(Math.min(2200, Math.max(1900, (pickerYearValue() ?? viewYear) + delta)));
+  }
+
+  function normalizePickerYear() {
+    // A partial year (e.g. "20" on the way to 2020) falls back rather than
+    // silently sending the calendar to 1900 when focus leaves the field.
+    monthPickerYear = String(pickerYearValue() ?? viewYear);
+  }
+
+  /** Keeps the year field to four digits while it is being typed. */
+  function inputPickerYear(event) {
+    const digits = event.currentTarget.value.replace(/\D/g, "").slice(0, 4);
+    event.currentTarget.value = digits;
+    monthPickerYear = digits;
+  }
+
+  function chooseMonth(month) {
+    normalizePickerYear();
+    const year = Number(monthPickerYear);
+    if (year < 1900 || year > 2200) return;
+    viewYear = year;
+    viewMonth = month;
+    closeMonthPicker();
+  }
+
+  // Opening the panel puts focus on the pending month so it can be confirmed
+  // with Enter and walked with Tab, rather than leaving focus on the trigger.
+  $effect(() => {
+    if (!monthPickerOpen || !monthPickerPanel) return;
+    monthPickerPanel.querySelector(".picker-month.active")?.focus();
+  });
+
+  function openSearch() {
+    menuOpen = false;
+    monthPickerOpen = false;
+    searchQuery = "";
+    activeSearchIndex = 0;
+    suppressSearchFocusRing = false;
+    searchOpen = true;
+  }
+
+  function closeSearch({ suppressRing = true } = {}) {
+    searchOpen = false;
+    suppressSearchFocusRing = suppressRing;
+    searchButton?.focus();
+  }
+
+  /** The one selection state shared by search results and dates opened from the grid. */
+  function selectDate(date) {
+    selectedDate = date;
+  }
+
+  function selectSearchResult(date, { suppressRing = true } = {}) {
+    const [year, month] = date.split("-").map(Number);
+    viewYear = year;
+    viewMonth = month - 1;
+    selectDate(date);
+    closeSearch({ suppressRing });
+  }
+
   function openEditor(cell) {
+    // Opening the editor is also an explicit choice of that day, so it takes
+    // the same amber selection as a search result.
+    selectDate(cell.key);
     editingKey = cell.key;
     draft = notes[cell.key] ?? "";
   }
@@ -254,6 +400,11 @@
     editorInput.focus();
     const end = editorInput.value.length;
     editorInput.setSelectionRange(end, end);
+  });
+
+  $effect(() => {
+    if (!searchOpen || !searchInput) return;
+    searchInput.focus();
   });
 
   async function saveNote() {
@@ -327,17 +478,70 @@
     menuOpen = !menuOpen;
   }
 
+  function handlePointerDown() {
+    // A pointer click is not a request for a keyboard focus frame; pressing
+    // Escape afterwards should leave the toolbar looking untouched.
+    keyboardFocus = false;
+  }
+
   function handleWindowClick(event) {
     if (menuOpen && menuEl && !menuEl.contains(event.target)) menuOpen = false;
+    if (
+      monthPickerOpen &&
+      monthPickerEl &&
+      !monthPickerEl.contains(event.target) &&
+      !monthPickerPanel?.contains(event.target)
+    ) {
+      // The click that dismissed the panel already moved focus somewhere useful.
+      closeMonthPicker({ restoreFocus: false });
+    }
   }
 
   function handleKeydown(event) {
-    if (event.key !== "Escape") return;
-    // The editor and the export dialog are modal, so they take Escape first.
-    if (editingKey) closeEditor();
-    else if (exportOpen) exportOpen = false;
-    else if (importOpen) closeImport();
-    else if (menuOpen) menuOpen = false;
+    // Only focus navigation asks for a visible frame. Typing, arrow keys inside
+    // a dialog and Escape must not turn a pointer click into a focus ring.
+    if (event.key === "Tab") keyboardFocus = true;
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+      keyboardFocus = true;
+      // Do not open search on top of another modal; there is nothing to search
+      // from until that one is dealt with.
+      if (editingKey || exportOpen || importOpen) return;
+      // Suppress the host's own Find UI only when this shortcut is actually ours.
+      event.preventDefault();
+      if (searchOpen) {
+        searchInput?.focus();
+        searchInput?.select();
+      } else {
+        openSearch();
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      // The editor and the export dialog are modal, so they take Escape first.
+      if (editingKey) closeEditor();
+      else if (exportOpen) exportOpen = false;
+      else if (importOpen) closeImport();
+      else if (monthPickerOpen) closeMonthPicker();
+      else if (searchOpen) closeSearch({ suppressRing: false });
+      else if (menuOpen) menuOpen = false;
+      return;
+    }
+
+    if (!searchOpen || event.target !== searchInput) return;
+
+    const navigation = navigateSearchResults(activeSearchIndex, searchResults.length, event.key);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      activeSearchIndex = navigation.index;
+      if (activeSearchIndex >= 0) {
+        document.getElementById(`search-result-${activeSearchIndex}`)?.scrollIntoView({ block: "nearest" });
+      }
+    } else if (navigation.activate) {
+      event.preventDefault();
+      selectSearchResult(searchResults[navigation.index].date, { suppressRing: false });
+    }
   }
 
   /**
@@ -389,6 +593,7 @@
 
   async function openExport() {
     menuOpen = false;
+    monthPickerOpen = false;
     exportType = "xls";
     exportRange = "all";
     const [from, to] = boundsFor("all");
@@ -580,6 +785,7 @@
 
   function openImport() {
     menuOpen = false;
+    monthPickerOpen = false;
     importFileName = "";
     importRows = [];
     importSkipped = 0;
@@ -698,12 +904,57 @@
 </script>
 
 <svelte:head><title>DBX Calendar</title></svelte:head>
-<svelte:window onkeydown={handleKeydown} onclick={handleWindowClick} />
+<svelte:window
+  onkeydown={handleKeydown}
+  onpointerdown={handlePointerDown}
+  onclick={handleWindowClick}
+/>
 
 <main>
-  <header class="toolbar">
-    <h1>{monthTitle}</h1>
+  <header class="toolbar" class:keyboard-focus={keyboardFocus}>
+    <div class="month-menu" bind:this={monthPickerEl}>
+      <h1>
+        <button
+          type="button"
+          class="month-trigger"
+          bind:this={monthPickerTrigger}
+          aria-haspopup="dialog"
+          aria-expanded={monthPickerOpen}
+          aria-controls="month-picker"
+          aria-label={`${monthTitle}, ${text.chooseMonth}`}
+          onclick={toggleMonthPicker}
+        >
+          <span>{monthTitle}</span>
+          <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path
+              d="m4 6 4 4 4-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </h1>
+
+    </div>
     <div class="actions">
+      <button
+        type="button"
+        class="menu-button search-button"
+        class:focus-restored={suppressSearchFocusRing}
+        bind:this={searchButton}
+        aria-label={text.search}
+        aria-expanded={searchOpen}
+        onclick={openSearch}
+        onblur={() => (suppressSearchFocusRing = false)}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="6.8" cy="6.8" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path d="m10.2 10.2 3.1 3.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+      </button>
       <div class="menu" bind:this={menuEl}>
         <button
           type="button"
@@ -756,6 +1007,88 @@
         hidden
       />
     </div>
+
+    {#if monthPickerOpen}
+      <div
+        class="month-picker"
+        id="month-picker"
+        role="dialog"
+        aria-label={text.chooseMonth}
+        bind:this={monthPickerPanel}
+      >
+        <div class="picker-year">
+          <button
+            type="button"
+            class="picker-step"
+            aria-label={text.previousYear}
+            onclick={() => stepPickerYear(-1)}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M9.5 3.5 5.5 8l4 4.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+
+          <div class="picker-year-field">
+            <input
+              class="picker-year-input"
+              type="text"
+              inputmode="numeric"
+              maxlength="4"
+              value={monthPickerYear}
+              aria-label={text.yearLabel}
+              onfocus={(event) => event.currentTarget.select()}
+              oninput={inputPickerYear}
+              onblur={normalizePickerYear}
+              onkeydown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                normalizePickerYear();
+              }}
+            />
+            {#if lang === "zh"}<span class="picker-year-suffix" aria-hidden="true">年</span>{/if}
+          </div>
+
+          <button
+            type="button"
+            class="picker-step"
+            aria-label={text.nextYear}
+            onclick={() => stepPickerYear(1)}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="m6.5 3.5 4 4.5-4 4.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div class="picker-months" role="group" aria-label={text.chooseMonth}>
+          {#each monthNames as name, index}
+            <button
+              type="button"
+              class="picker-month"
+              class:active={index === monthPickerMonth}
+              aria-pressed={index === monthPickerMonth}
+              onclick={() => chooseMonth(index)}
+            >
+              {name}
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </header>
 
   {#if notesError}
@@ -779,9 +1112,12 @@
           class:outside={!cell.inMonth}
           class:weekend={cell.weekend}
           class:today={cell.key === todayKey}
+          class:selected={cell.key === selectedDate}
           aria-label="{cell.key}, {info.text}{info.status
             ? `, ${info.status === 'off' ? text.dayOff : text.workday}`
-            : ''}, {notes[cell.key] ? text.hasNote : text.noNote}, {text.edit}"
+            : ''}, {notes[cell.key] ? text.hasNote : text.noNote}, {text.edit}{cell.key === selectedDate
+            ? `, ${text.selectedDateLabel}`
+            : ''}"
           ondblclick={() => openEditor(cell)}
           onclick={(event) => {
             // A button reports detail 0 only when activated from the keyboard
@@ -806,6 +1142,93 @@
     {/each}
   </div>
 </main>
+
+{#if searchOpen}
+  <div class="backdrop search-backdrop">
+    <div class="search-dialog" role="dialog" aria-modal="true" aria-labelledby="search-title" tabindex="-1">
+      <header class="search-head">
+        <h2 id="search-title">{text.searchTitle}</h2>
+        <button
+          type="button"
+          class="search-close"
+          aria-label={text.closeSearch}
+          onclick={(event) => closeSearch({ suppressRing: event.detail > 0 })}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+        </button>
+      </header>
+
+      <label class="search-field">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="6.8" cy="6.8" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path d="m10.2 10.2 3.1 3.1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
+        <input
+          type="search"
+          bind:this={searchInput}
+          bind:value={searchQuery}
+          placeholder={text.searchPlaceholder}
+          aria-label={text.searchPlaceholder}
+          role="combobox"
+          aria-controls="search-results"
+          aria-haspopup="listbox"
+          aria-expanded={Boolean(searchQuery.trim() && searchResults.length)}
+          aria-activedescendant={searchResults.length ? `search-result-${activeSearchIndex}` : undefined}
+          oninput={() => (activeSearchIndex = 0)}
+        />
+      </label>
+
+      <p class="search-count" aria-live="polite">
+        {searchQuery.trim() ? text.searchCount(searchResults.length) : ""}
+      </p>
+
+      <div
+        id="search-results"
+        class="search-results"
+        role={searchQuery.trim() && searchResults.length ? "listbox" : undefined}
+        aria-label={searchQuery.trim() && searchResults.length ? text.searchTitle : undefined}
+      >
+        {#if searchQuery.trim() && searchResults.length}
+          {#each searchResults as result, index (result.date)}
+            <button
+              type="button"
+              id="search-result-{index}"
+              class="search-result"
+              class:active={activeSearchIndex === index}
+              role="option"
+              aria-selected={activeSearchIndex === index}
+              aria-label="{result.date}: {result.content}"
+              onclick={(event) =>
+                selectSearchResult(result.date, { suppressRing: event.detail > 0 })}
+            >
+              <time class="search-date" datetime={result.date}>{result.date}</time>
+              <span class="search-content">
+                {#each highlightMatches(result.content, searchQuery) as segment}
+                  {#if segment.highlighted}
+                    <mark>{segment.text}</mark>
+                  {:else}
+                    {segment.text}
+                  {/if}
+                {/each}
+              </span>
+            </button>
+          {/each}
+        {:else if searchQuery.trim()}
+          <p class="search-empty">{text.searchEmpty}</p>
+        {:else}
+          <p class="search-empty">{text.searchPrompt}</p>
+        {/if}
+      </div>
+
+      <p class="search-help">
+        <span><kbd>↑</kbd><kbd>↓</kbd> {text.searchHelpNavigate}</span>
+        <span><kbd>Esc</kbd> {text.searchHelpClose}</span>
+      </p>
+    </div>
+  </div>
+{/if}
 
 {#if status}
   <div class="status" role="status">{status}</div>
@@ -1001,6 +1424,7 @@
   }
   :global(body) {
     --accent: #6d5dfc;
+    --select: #e0a12e;
     --rule: color-mix(in srgb, CanvasText 14%, transparent);
     --muted: color-mix(in srgb, CanvasText 45%, transparent);
     --tint: color-mix(in srgb, CanvasText 4%, transparent);
@@ -1023,20 +1447,179 @@
 
   /* Toolbar stays quiet: the grid is the interface. */
   .toolbar {
+    position: relative;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 8px 16px;
     padding: 0 2px;
   }
   h1 {
     margin: 0;
     font-size: 19px;
     font-weight: 600;
+    line-height: 1.2;
     letter-spacing: -0.01em;
+  }
+  /* The title is the month picker's handle: a quiet label that reacts to the
+     pointer, not a button-shaped control competing with the grid. */
+  .month-menu {
+    position: relative;
+    min-width: 0;
+  }
+  .month-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: -4px 0 -4px -7px;
+    padding: 4px 7px;
+    border: 0;
+    border-radius: 7px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+  }
+  .month-trigger > span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .month-trigger:hover {
+    background: var(--tint);
+  }
+  .month-trigger:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .month-trigger .chevron {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--muted);
+    transition: transform 140ms ease;
+  }
+  .month-trigger[aria-expanded="true"] .chevron {
+    transform: rotate(180deg);
+  }
+
+  /* A compact almanac index: year stepper on top, twelve months below. */
+  .month-picker {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 2px;
+    z-index: 12;
+    width: min(292px, calc(100vw - 32px));
+    padding: 12px;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    background: Canvas;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.2);
+    animation: picker-in 120ms ease-out;
+  }
+  @keyframes picker-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+  .picker-year {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .picker-step {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+  }
+  .picker-step:hover {
+    color: inherit;
+    background: var(--tint);
+  }
+  .picker-step svg {
+    width: 12px;
+    height: 12px;
+  }
+  .picker-year-field {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+  .picker-year-input {
+    width: 4.6ch;
+    padding: 2px 2px 1px;
+    border: 0;
+    border-bottom: 1px dashed color-mix(in srgb, CanvasText 28%, transparent);
+    border-radius: 4px 4px 0 0;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+  .picker-year-input:hover {
+    background: var(--tint);
+  }
+  .picker-year-input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .picker-year-suffix {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .picker-months {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    padding-top: 10px;
+  }
+  .picker-month {
+    height: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .picker-month:hover {
+    background: var(--tint);
+  }
+  .picker-month.active {
+    color: #fff;
+    background: var(--accent);
+    font-weight: 600;
+  }
+  .picker-month.active:focus-visible {
+    outline-color: CanvasText;
+    outline-offset: 2px;
+  }
+  .picker-month:focus-visible,
+  .picker-step:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
   .nav {
     display: flex;
+    flex: none;
     gap: 4px;
   }
   .nav button {
@@ -1050,6 +1633,7 @@
     font: inherit;
     font-size: 14px;
     line-height: 1;
+    white-space: nowrap;
     cursor: pointer;
   }
   .nav button:hover {
@@ -1078,8 +1662,10 @@
 
   .actions {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 8px;
+    margin-left: auto;
   }
 
   .notice {
@@ -1226,6 +1812,20 @@
   .cell.today:hover {
     background: color-mix(in srgb, var(--accent) 16%, Canvas);
   }
+  /* A search result is framed in amber, the way a date gets marked in a paper
+     diary. The frame does the work, so the date and note keep their normal ink;
+     today keeps its purple date pill but yields the frame to the selection. */
+  .cell.selected {
+    background: color-mix(in srgb, var(--select) 7%, Canvas);
+    box-shadow: inset 0 0 0 2px var(--select);
+  }
+  .cell.selected:hover {
+    background: color-mix(in srgb, var(--select) 11%, Canvas);
+  }
+  .cell.today.selected {
+    background: color-mix(in srgb, var(--select) 8%, Canvas);
+    box-shadow: inset 0 0 0 2px var(--select);
+  }
 
   .cell-head {
     display: flex;
@@ -1302,6 +1902,9 @@
     place-items: center;
     padding: 20px;
     background: color-mix(in srgb, #000 45%, transparent);
+  }
+  .search-backdrop {
+    z-index: 30;
   }
   .editor {
     display: flex;
@@ -1391,6 +1994,203 @@
   }
   .editor-actions .danger {
     color: color-mix(in srgb, #e5484d 80%, CanvasText);
+  }
+
+  /* Search dialog */
+  .search-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: min(560px, 100%);
+    height: min(560px, 84vh);
+    padding: 16px;
+    overflow: hidden;
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    background: Canvas;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+  }
+  .search-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .search-head h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .search-close {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+  .search-close:hover {
+    background: var(--tint);
+  }
+  .search-close svg {
+    width: 14px;
+    height: 14px;
+  }
+  .search-field {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid var(--rule);
+    border-radius: 9px;
+    background: color-mix(in srgb, CanvasText 3%, Canvas);
+  }
+  .search-field:focus-within {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  .search-field svg {
+    flex: none;
+    width: 15px;
+    height: 15px;
+    color: var(--muted);
+  }
+  .search-field input {
+    width: 100%;
+    min-width: 0;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    font-size: 13px;
+  }
+  .search-field input::placeholder {
+    color: var(--muted);
+  }
+  .search-count {
+    min-height: 16px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+  .search-results {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .search-result {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .search-result:hover {
+    border-color: var(--rule);
+    background: var(--tint);
+  }
+  .search-result.active {
+    border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+    background: color-mix(in srgb, var(--accent) 9%, Canvas);
+  }
+  .search-result:focus-visible,
+  .search-close:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .search-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Pointer clicks must not leave a focus frame behind when Escape switches
+     the browser back to keyboard mode; Tab and other keyboard navigation set
+     the class that keeps the normal focus treatment. */
+  .toolbar:not(.keyboard-focus) button:focus {
+    outline: none;
+  }
+  .search-button.focus-restored:focus-visible {
+    outline: none;
+  }
+  .search-date {
+    flex: none;
+    min-width: 92px;
+    padding-top: 1px;
+    color: var(--muted);
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .search-content {
+    min-width: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .search-content mark {
+    border-radius: 2px;
+    color: inherit;
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    font-weight: 650;
+  }
+  .search-empty {
+    display: grid;
+    flex: 1;
+    place-items: center;
+    margin: 0;
+    padding: 18px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+  .search-help {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+    margin: 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+  .search-help span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .search-help kbd {
+    display: inline-grid;
+    place-items: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    background: color-mix(in srgb, CanvasText 4%, Canvas);
+    color: inherit;
+    font: inherit;
+    font-size: 10.5px;
+    line-height: 1;
   }
 
   /* Export dialog */
@@ -1581,6 +2381,19 @@
   @media (prefers-reduced-motion: reduce) {
     * {
       transition: none !important;
+      animation: none !important;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .search-dialog {
+      height: min(560px, 90vh);
+      padding: 12px;
+    }
+    .search-result {
+      flex-direction: column;
+      gap: 4px;
+      padding: 9px;
     }
   }
 </style>

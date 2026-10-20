@@ -3,11 +3,11 @@
   "manifest_version": 1,
   "id": "com.tenltrs.dbx-calendar",
   "name": "Calendar Notes",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "publisher": "tenltrs",
   "description": "A minimal month-view calendar for keeping day-by-day notes.",
   "icon": "assets/icon.svg",
-  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.5",
+  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.7",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "permissions": [],
   "engines": { "dbx": ">=0.6.0", "host_api": "1" },
@@ -27,11 +27,11 @@
   "localizations": {
     "zh-CN": {
       "name": "日历笔记",
-      "description": "日历笔记，快捷的备忘工具。",
+      "description": "日历笔记，快捷的笔记工具。",
       "contributions": {
         "com.tenltrs.dbx-calendar.workbench": {
           "label": "日历笔记",
-          "description": "在月视图日历上按天记录备忘。"
+          "description": "在月视图日历上按天记录笔记。"
         }
       }
     }

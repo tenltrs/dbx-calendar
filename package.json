@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:watch": "vite build --watch"
+    "build:watch": "vite build --watch",
+    "test": "node --test"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
