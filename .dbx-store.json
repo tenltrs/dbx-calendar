@@ -7,5 +7,5 @@
   "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.7",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
-  "releaseNotes": "Month-view calendar with lunar dates, solar terms and statutory holiday markers. Notes are stored by the plugin's Go sidecar and can be exported to .xls or .txt and imported back."
+  "releaseNotes": "Find notes instantly with highlighted matches and jump straight to the matching date. Pick any year and month from the header instead of stepping through months. "
 }
