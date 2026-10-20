@@ -260,7 +260,7 @@ func main() {
 
 	metadata := dbxpluginsdk.Metadata{
 		ID:           "com.tenltrs.dbx-calendar",
-		Version:      "0.1.5",
+		Version:      "0.1.7",
 		Capabilities: []string{"commands"},
 	}
 	server := dbxpluginsdk.NewServer(metadata, &plugin{

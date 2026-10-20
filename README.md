@@ -27,6 +27,7 @@ Also available in [简体中文](README.zh-CN.md).
 - Double-click a day to open the editor
 - `Ctrl`/`Cmd` + `Enter` saves, `Esc` closes, and the same editor clears an existing note
 - Notes persist through the Go sidecar, under the host's plugin data directory
+- Search from the toolbar to find saved notes, newest date first, with matching text highlighted; selecting a result jumps to that month and marks the day
 
 **Export and import**
 
@@ -110,7 +111,8 @@ There is deliberately no fallback data source. A year the library does not carry
 
 ```
 src/
-  App.svelte         month grid, day cells, note editor
+  App.svelte         month grid, day cells, note editor, and search dialog
+  search.js          note search and query highlighting
   lunar.js           lunar dates, solar terms, holiday priority
   dbx.js             the only module that talks to the host bridge
   main.js            mounts the app
