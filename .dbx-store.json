@@ -4,7 +4,7 @@
   "icon": "assets/icon.svg",
   "tags": ["calendar", "memo", "notes", "workflow", "to-do"],
   "permissions": [],
-  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.7",
+  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.8",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
   "releaseNotes": "Find notes instantly with highlighted matches and jump straight to the matching date. Pick any year and month from the header instead of stepping through months. "

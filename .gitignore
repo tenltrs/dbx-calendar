@@ -10,4 +10,4 @@
 CLAUDE.md
 *.idea/
 *.claude/
-/ui/
+*.workbuddy
