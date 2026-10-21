@@ -179,7 +179,6 @@
 
   let monthPickerOpen = $state(false);
   let monthPickerYear = $state(String(now.getFullYear()));
-  let monthPickerMonth = $state(now.getMonth());
   let monthPickerEl = $state(null);
   let monthPickerPanel = $state(null);
   let monthPickerTrigger = $state(null);
@@ -197,7 +196,6 @@
   let searchQuery = $state("");
   let searchInput = $state(null);
   let searchButton = $state(null);
-  let suppressSearchFocusRing = $state(false);
   /** True while the user is moving with the keyboard, so focus frames are wanted. */
   let keyboardFocus = $state(false);
   let activeSearchIndex = $state(0);
@@ -291,8 +289,10 @@
 
   function openMonthPicker() {
     menuOpen = false;
+    // The year field starts from the grid so the steppers continue from where
+    // the user is; the highlighted month is always the grid's own year+month,
+    // so stepping the year to another one leaves nothing highlighted.
     monthPickerYear = String(viewYear);
-    monthPickerMonth = viewMonth;
     monthPickerOpen = true;
   }
 
@@ -342,6 +342,13 @@
     closeMonthPicker();
   }
 
+  /** True for the one month the grid is actually showing, and only while the
+   *  year field still names that year. Stepping to another year clears it:
+   *  the pill marks a year+month pair, not a month index that rides along. */
+  function isChosenMonth(index) {
+    return index === viewMonth && pickerYearValue() === viewYear;
+  }
+
   // Opening the panel puts focus on the pending month so it can be confirmed
   // with Enter and walked with Tab, rather than leaving focus on the trigger.
   $effect(() => {
@@ -354,13 +361,13 @@
     monthPickerOpen = false;
     searchQuery = "";
     activeSearchIndex = 0;
-    suppressSearchFocusRing = false;
     searchOpen = true;
   }
 
-  function closeSearch({ suppressRing = true } = {}) {
+  // Closing returns focus to the trigger so typing continues from where it was,
+  // but that button never paints a focus ring of its own.
+  function closeSearch() {
     searchOpen = false;
-    suppressSearchFocusRing = suppressRing;
     searchButton?.focus();
   }
 
@@ -369,12 +376,12 @@
     selectedDate = date;
   }
 
-  function selectSearchResult(date, { suppressRing = true } = {}) {
+  function selectSearchResult(date) {
     const [year, month] = date.split("-").map(Number);
     viewYear = year;
     viewMonth = month - 1;
     selectDate(date);
-    closeSearch({ suppressRing });
+    closeSearch();
   }
 
   function openEditor(cell) {
@@ -524,7 +531,7 @@
       else if (exportOpen) exportOpen = false;
       else if (importOpen) closeImport();
       else if (monthPickerOpen) closeMonthPicker();
-      else if (searchOpen) closeSearch({ suppressRing: false });
+      else if (searchOpen) closeSearch();
       else if (menuOpen) menuOpen = false;
       return;
     }
@@ -540,7 +547,7 @@
       }
     } else if (navigation.activate) {
       event.preventDefault();
-      selectSearchResult(searchResults[navigation.index].date, { suppressRing: false });
+      selectSearchResult(searchResults[navigation.index].date);
     }
   }
 
@@ -943,12 +950,10 @@
       <button
         type="button"
         class="menu-button search-button"
-        class:focus-restored={suppressSearchFocusRing}
         bind:this={searchButton}
         aria-label={text.search}
         aria-expanded={searchOpen}
         onclick={openSearch}
-        onblur={() => (suppressSearchFocusRing = false)}
       >
         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <circle cx="6.8" cy="6.8" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5" />
@@ -1079,8 +1084,8 @@
             <button
               type="button"
               class="picker-month"
-              class:active={index === monthPickerMonth}
-              aria-pressed={index === monthPickerMonth}
+              class:active={isChosenMonth(index)}
+              aria-pressed={isChosenMonth(index)}
               onclick={() => chooseMonth(index)}
             >
               {name}
@@ -1120,8 +1125,11 @@
             : ''}"
           ondblclick={() => openEditor(cell)}
           onclick={(event) => {
-            // A button reports detail 0 only when activated from the keyboard
-            // (Enter/Space), which fires click but never dblclick.
+            // One click marks the day (the amber frame), which is all a pointer
+            // user needs to point at a date. The editor still needs the double
+            // click. Keyboard activation reports detail 0 and never fires
+            // dblclick, so Enter/Space opens the editor directly.
+            selectDate(cell.key);
             if (event.detail === 0) openEditor(cell);
           }}
         >
@@ -1152,7 +1160,7 @@
           type="button"
           class="search-close"
           aria-label={text.closeSearch}
-          onclick={(event) => closeSearch({ suppressRing: event.detail > 0 })}
+          onclick={() => closeSearch()}
         >
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -1200,8 +1208,7 @@
               role="option"
               aria-selected={activeSearchIndex === index}
               aria-label="{result.date}: {result.content}"
-              onclick={(event) =>
-                selectSearchResult(result.date, { suppressRing: event.detail > 0 })}
+              onclick={() => selectSearchResult(result.date)}
             >
               <time class="search-date" datetime={result.date}>{result.date}</time>
               <span class="search-content">
@@ -2118,17 +2125,17 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+  /* The search trigger is an icon-only shortcut target that focus returns to
+     after Escape, so it stays frameless in every state; its hover tint is the
+     only affordance it needs. */
+  .search-button:focus,
   .search-button:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    outline: none;
   }
   /* Pointer clicks must not leave a focus frame behind when Escape switches
      the browser back to keyboard mode; Tab and other keyboard navigation set
      the class that keeps the normal focus treatment. */
   .toolbar:not(.keyboard-focus) button:focus {
-    outline: none;
-  }
-  .search-button.focus-restored:focus-visible {
     outline: none;
   }
   .search-date {
