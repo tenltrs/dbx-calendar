@@ -12,9 +12,6 @@ jobs:
     uses: t8y2/dbx/.github/workflows/plugin-release-reusable.yml@main
     with:
       release-tag: ${{ github.event.release.tag_name }}
-      # ui/ is a build product (.gitignore has it), so each runner compiles it
-      # from src/ before packaging rather than relying on a committed bundle.
-      # package.json points Vite at ui/, which is what dbx-plugin packages.
       package-command: |
         npm ci --no-audit --no-fund
         npm run build
