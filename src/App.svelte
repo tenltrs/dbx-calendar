@@ -14,6 +14,10 @@
   import txtIcon from "../assets/txt.svg";
   import previousIcon from "../assets/previous.svg";
   import nextIcon from "../assets/next.svg";
+  import productIcon from "../assets/icon.svg";
+  // The About pane names a version, and the manifest is the only place it is
+  // actually declared; reading it here keeps the two from drifting apart.
+  import manifest from "../manifest.json";
   import { dayInfo } from "./lunar.js";
   import { highlightMatches, navigateSearchResults, searchNotes } from "./search.js";
   import { invoke, whenReady, hostLocale, bridgeAvailable } from "./dbx.js";
@@ -55,6 +59,31 @@
       searchHelpNavigate: "navigate",
       searchHelpClose: "close",
       menu: "Menu",
+      settings: "Settings",
+      settingsClose: "Close settings",
+      tabGrid: "Grid",
+      tabCell: "Cells",
+      tabAbout: "About",
+      tabGridHint: "Grid options will live here.",
+      tabCellHint: "Cell options will live here.",
+      aboutName: "Calendar Notes",
+      aboutTagline: "A month view for keeping notes, day by day.",
+      aboutIntro:
+        "Runs as a DBX workbench panel. Each cell carries its lunar date, solar term or festival, the statutory holiday arrangement when one is published, and the note you wrote on that day.",
+      aboutFeatures: [
+        "Month grid with lunar dates, solar terms and holiday markers",
+        "Search every note, keyboard-first",
+        "Export to .xls or .txt, import back from .xls or .xlsx",
+        "Notes kept by the local sidecar, never in the page",
+      ],
+      aboutMeta: "Details",
+      metaPublisher: "Publisher",
+      metaLicense: "License",
+      metaRequires: "Requires",
+      metaBuilt: "Built with",
+      metaHomepage: "Homepage",
+      metaSource: "Source",
+      aboutRights: (year) => `© ${year} tenltrs. Released under the Apache License 2.0.`,
       colDate: "Date",
       colContent: "Note",
       sheetName: "Notes",
@@ -128,6 +157,31 @@
       searchHelpNavigate: "切换结果",
       searchHelpClose: "关闭",
       menu: "菜单",
+      settings: "设置",
+      settingsClose: "关闭设置",
+      tabGrid: "表格设置",
+      tabCell: "单元格设置",
+      tabAbout: "关于我们",
+      tabGridHint: "表格相关的选项会放在这里。",
+      tabCellHint: "单元格相关的选项会放在这里。",
+      aboutName: "日历笔记",
+      aboutTagline: "在月视图上，按天记录笔记。",
+      aboutIntro:
+        "以工作台面板运行在 DBX 中。每个日期格写着公历日、农历、节气或节日，遇到法定节假日还会标出放假与调休；那天写过的笔记也直接显示在格里。",
+      aboutFeatures: [
+        "月视图，附农历、节气与节假日标记",
+        "全文搜索笔记，全程可用键盘操作",
+        "导出 .xls 或 .txt，支持 .xls / .xlsx 导回",
+        "笔记由本地 sidecar 保存，不落在页面里",
+      ],
+      aboutMeta: "详细信息",
+      metaPublisher: "开发者",
+      metaLicense: "许可证",
+      metaRequires: "运行环境",
+      metaBuilt: "技术栈",
+      metaHomepage: "主页",
+      metaSource: "源码",
+      aboutRights: (year) => `© ${year} tenltrs，基于 Apache License 2.0 发布。`,
       colDate: "日期",
       colContent: "内容",
       sheetName: "笔记",
@@ -192,6 +246,12 @@
 
   let menuOpen = $state(false);
   let menuEl = $state(null);
+  let menuButton = $state(null);
+  let settingsOpen = $state(false);
+  /** Which settings pane the rail is showing. The dialog always reopens on
+   *  the first pane so its shape is predictable. */
+  let settingsTab = $state("grid");
+  let settingsPanel = $state(null);
   let searchOpen = $state(false);
   let searchQuery = $state("");
   let searchInput = $state(null);
@@ -364,6 +424,34 @@
     searchOpen = true;
   }
 
+  /** The rail is built from the copy so its order and labels stay in one place. */
+  const settingsTabs = $derived([
+    { id: "grid", label: text.tabGrid },
+    { id: "cell", label: text.tabCell },
+    { id: "about", label: text.tabAbout },
+  ]);
+
+  function openSettings() {
+    menuOpen = false;
+    monthPickerOpen = false;
+    settingsTab = "grid";
+    settingsOpen = true;
+  }
+
+  function closeSettings() {
+    settingsOpen = false;
+    // Focus goes back to the menu it was opened from, so a keyboard user is
+    // where they left off rather than at the top of the document.
+    menuButton?.focus();
+  }
+
+  // Focus lands on the pane already showing: a keyboard user starts inside the
+  // sheet rather than at the top of the document, and Tab moves on from there.
+  $effect(() => {
+    if (!settingsOpen || !settingsPanel) return;
+    settingsPanel.querySelector(".settings-tab.active")?.focus();
+  });
+
   // Closing returns focus to the trigger so typing continues from where it was,
   // but that button never paints a focus ring of its own.
   function closeSearch() {
@@ -509,11 +597,38 @@
     // a dialog and Escape must not turn a pointer click into a focus ring.
     if (event.key === "Tab") keyboardFocus = true;
 
+    // The settings sheet is modal, so Tab cycles inside it instead of leaking
+    // out to the toolbar behind the scrim.
+    if (event.key === "Tab" && settingsOpen && settingsPanel) {
+      const focusable = [...settingsPanel.querySelectorAll("button, a[href], [tabindex]:not([tabindex='-1'])")]
+        .filter((el) => el.offsetParent !== null);
+      if (focusable.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (!settingsPanel.contains(active)) {
+          event.preventDefault();
+          first.focus();
+          return;
+        }
+        if (event.shiftKey && active === first) {
+          event.preventDefault();
+          last.focus();
+          return;
+        }
+        if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+          return;
+        }
+      }
+    }
+
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
       keyboardFocus = true;
       // Do not open search on top of another modal; there is nothing to search
       // from until that one is dealt with.
-      if (editingKey || exportOpen || importOpen) return;
+      if (editingKey || exportOpen || importOpen || settingsOpen) return;
       // Suppress the host's own Find UI only when this shortcut is actually ours.
       event.preventDefault();
       if (searchOpen) {
@@ -530,6 +645,7 @@
       if (editingKey) closeEditor();
       else if (exportOpen) exportOpen = false;
       else if (importOpen) closeImport();
+      else if (settingsOpen) closeSettings();
       else if (monthPickerOpen) closeMonthPicker();
       else if (searchOpen) closeSearch();
       else if (menuOpen) menuOpen = false;
@@ -964,6 +1080,7 @@
         <button
           type="button"
           class="menu-button"
+          bind:this={menuButton}
           aria-label={text.menu}
           aria-expanded={menuOpen}
           onclick={toggleMenu}
@@ -980,6 +1097,7 @@
         </button>
         {#if menuOpen}
           <div class="dropdown">
+            <button type="button" onclick={openSettings}>{text.settings}</button>
             <button type="button" onclick={openExport}>{text.export}</button>
             <button type="button" onclick={openImport}>{text.import}</button>
           </div>
@@ -1415,6 +1533,123 @@
         <button type="button" class="primary" disabled={!importRows.length} onclick={runImport}>
           {text.import}
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if settingsOpen}
+  <!-- A settings sheet reads as one surface: an index rail on the left, one
+       pane of content on the right. The rail is not a nav menu that navigates
+       away, it is a table of contents for the same panel, so the two share the
+       dialog's single frame instead of splitting into floating cards. -->
+  <div class="backdrop">
+    <div
+      class="settings"
+      role="dialog"
+      aria-modal="true"
+      aria-label={text.settings}
+      tabindex="-1"
+      bind:this={settingsPanel}
+    >
+      <div class="settings-head">
+        <h2>{text.settings}</h2>
+        <button
+          type="button"
+          class="settings-close"
+          aria-label={text.settingsClose}
+          onclick={closeSettings}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path
+              d="m4 4 8 8m0-8-8 8"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div class="settings-body">
+        <nav class="settings-rail" aria-label={text.settings}>
+          {#each settingsTabs as tab (tab.id)}
+            <button
+              type="button"
+              class="settings-tab"
+              class:active={settingsTab === tab.id}
+              aria-current={settingsTab === tab.id ? "page" : undefined}
+              onclick={() => (settingsTab = tab.id)}
+            >
+              {tab.label}
+            </button>
+          {/each}
+        </nav>
+
+        <section class="settings-pane" aria-live="polite">
+          {#if settingsTab === "grid"}
+            <p class="pane-empty">
+              <span class="pane-empty-title">{text.tabGrid}</span>
+              {text.tabGridHint}
+            </p>
+          {:else if settingsTab === "cell"}
+            <p class="pane-empty">
+              <span class="pane-empty-title">{text.tabCell}</span>
+              {text.tabCellHint}
+            </p>
+          {:else}
+            <div class="about">
+              <header class="about-identity">
+                <img class="about-mark" src={productIcon} alt="" width="56" height="56" />
+                <div class="about-title">
+                  <h3>{text.aboutName}</h3>
+                  <p class="about-tagline">{text.aboutTagline}</p>
+                </div>
+                <span class="about-version">v{manifest.version}</span>
+              </header>
+
+              <p class="about-intro">{text.aboutIntro}</p>
+
+              <ul class="about-features">
+                {#each text.aboutFeatures as feature (feature)}
+                  <li>{feature}</li>
+                {/each}
+              </ul>
+
+              <h4 class="about-meta-title">{text.aboutMeta}</h4>
+              <dl class="about-meta">
+                <div>
+                  <dt>{text.metaPublisher}</dt>
+                  <dd>{manifest.publisher}</dd>
+                </div>
+                <div>
+                  <dt>{text.metaLicense}</dt>
+                  <dd>Apache-2.0</dd>
+                </div>
+                <div>
+                  <dt>{text.metaRequires}</dt>
+                  <dd>DBX ≥ 0.6.0 · Host API 1</dd>
+                </div>
+                <div>
+                  <dt>{text.metaBuilt}</dt>
+                  <dd>Svelte 5 · Vite 7 · Go 1.22</dd>
+                </div>
+              </dl>
+
+              <div class="about-links">
+                <a href={manifest.homepage} target="_blank" rel="noreferrer noopener">
+                  {text.metaHomepage}
+                </a>
+                <a href={manifest.source} target="_blank" rel="noreferrer noopener">
+                  {text.metaSource}
+                </a>
+              </div>
+
+              <p class="about-rights">{text.aboutRights(new Date().getFullYear())}</p>
+            </div>
+          {/if}
+        </section>
       </div>
     </div>
   </div>
@@ -2383,6 +2618,309 @@
     margin-right: auto;
     color: var(--muted);
     font-size: 12px;
+  }
+
+  /* Settings sheet. One panel with an index rail rather than a stack of cards:
+     the hairline between rail and pane is the same rule the calendar grid uses,
+     so the dialog speaks the product's language instead of a generic one. */
+  .settings {
+    display: flex;
+    flex-direction: column;
+    width: min(720px, 100%);
+    height: min(560px, 86vh);
+    overflow: hidden;
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    background: Canvas;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+  }
+  .settings:focus {
+    outline: none;
+  }
+  .settings-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .settings-head h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .settings-close {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+  .settings-close:hover {
+    background: var(--tint);
+  }
+  .settings-close svg {
+    width: 13px;
+    height: 13px;
+  }
+  .settings-close:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .settings-body {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+
+  /* The rail is tinted a shade so the two columns read as index and page,
+     the way a ledger separates tabs from the sheet they open. */
+  .settings-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 8px;
+    overflow-y: auto;
+    border-right: 1px solid var(--rule);
+    background: color-mix(in srgb, CanvasText 3.5%, Canvas);
+  }
+  .settings-tab {
+    position: relative;
+    padding: 8px 10px 8px 13px;
+    border: 0;
+    border-radius: 7px;
+    color: color-mix(in srgb, CanvasText 70%, transparent);
+    background: transparent;
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .settings-tab:hover {
+    color: CanvasText;
+    background: color-mix(in srgb, CanvasText 5%, transparent);
+  }
+  /* The active marker is a short amber tick, the same accent a chosen date
+     carries in the grid. */
+  .settings-tab.active {
+    color: CanvasText;
+    background: Canvas;
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--rule);
+  }
+  .settings-tab.active::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 5px;
+    width: 2px;
+    height: 14px;
+    transform: translateY(-50%);
+    border-radius: 2px;
+    background: var(--select);
+  }
+  .settings-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .settings-pane {
+    min-width: 0;
+    padding: 18px 20px 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* An empty pane states what will live here instead of pretending to hold
+     controls that do nothing yet. */
+  .pane-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-width: 44ch;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .pane-empty-title {
+    color: CanvasText;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .about {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 60ch;
+  }
+  .about-identity {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .about-mark {
+    flex: none;
+    width: 44px;
+    height: 44px;
+  }
+  .about-title {
+    min-width: 0;
+  }
+  .about-title h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .about-tagline {
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .about-version {
+    flex: none;
+    margin-left: auto;
+    align-self: flex-start;
+    padding: 2px 7px;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .about-intro {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: color-mix(in srgb, CanvasText 82%, transparent);
+  }
+
+  /* Ruled rows, not floating pills: the list is a table of contents for what
+     the plugin does, and hairlines are how this interface separates things. */
+  .about-features {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--rule);
+  }
+  .about-features li {
+    padding: 6px 0 6px 15px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .about-features li::before {
+    content: "·";
+    float: left;
+    width: 15px;
+    margin-left: -15px;
+    color: var(--select);
+    font-weight: 700;
+  }
+
+  .about-meta-title {
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .about-meta {
+    display: grid;
+    gap: 0;
+    margin: -10px 0 0;
+    font-size: 12.5px;
+  }
+  .about-meta > div {
+    display: flex;
+    gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .about-meta dt {
+    flex: none;
+    width: 72px;
+    color: var(--muted);
+  }
+  .about-meta dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .about-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .about-links a {
+    padding: 5px 11px;
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    color: inherit;
+    font-size: 12.5px;
+    text-decoration: none;
+  }
+  .about-links a:hover {
+    background: var(--tint);
+  }
+  .about-links a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .about-rights {
+    margin: 0;
+    padding-top: 2px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 560px) {
+    .settings {
+      height: min(600px, 90vh);
+    }
+    /* On a narrow panel the rail turns into a horizontal tab strip so the
+       content keeps the full width. */
+    .settings-body {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .settings-rail {
+      flex-direction: row;
+      gap: 4px;
+      padding: 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-right: 0;
+      border-bottom: 1px solid var(--rule);
+    }
+    .settings-tab {
+      flex: none;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+    .settings-tab.active::before {
+      display: none;
+    }
+    .settings-pane {
+      padding: 14px;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

@@ -39,6 +39,12 @@ Also available in [简体中文](README.zh-CN.md).
 - Dates the file and the calendar both carry are reported as conflicts, resolved by overwrite, skip, or merge
 - Import replaces the whole note set in one call, so a failure cannot leave a half-applied import behind
 
+**Settings**
+
+- The toolbar menu opens a settings sheet with a rail on the left: grid, cells, and about
+- The about pane reads the version, publisher, homepage and source from `manifest.json`
+- `Esc` or the close button dismisses it and returns focus to the toolbar menu
+
 **Host integration**
 
 - Follows the DBX host locale, Chinese or English
