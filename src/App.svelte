@@ -21,14 +21,13 @@
   import exportIcon from "../assets/export.svg";
   import importIcon from "../assets/import.svg";
   import calendarIcon from "../assets/calendar.svg";
-  import cellIcon from "../assets/cell.svg";
   import infoIcon from "../assets/info.svg";
   // The About pane names a version, and the manifest is the only place it is
   // actually declared; reading it here keeps the two from drifting apart.
   import manifest from "../manifest.json";
   import { dayInfo } from "./lunar.js";
   import { highlightMatches, navigateSearchResults, searchNotes } from "./search.js";
-  import { invoke, whenReady, hostLocale, bridgeAvailable } from "./dbx.js";
+  import { invoke, whenReady, hostLocale, bridgeAvailable, readSettingsStorage, writeSettingsStorage } from "./dbx.js";
 
   /** Vite inlines small SVGs as data URIs whose payload contains single quotes,
    *  and an unquoted CSS url() rejects quote characters outright. Quoting here
@@ -70,10 +69,9 @@
       settings: "Settings",
       settingsClose: "Close settings",
       tabGrid: "Calendar",
-      tabCell: "Cells",
       tabAbout: "About",
-      tabCellHint: "Cell options will live here.",
-      groupStyle: "Style",
+      groupStyle: "Calendar style",
+      groupCellStyle: "Cell style",
       groupDisplay: "Display",
       groupFestival: "Festivals",
       groupLunar: "Lunar calendar",
@@ -84,6 +82,10 @@
       pastWeeks: "Weeks above",
       pastWeeksHint: "Week rows kept above the anchor day; 0 puts it in the first row.",
       pastWeeksValue: (count) => `${count} ${count === 1 ? "row" : "rows"}`,
+      bulletNone: "No bullets",
+      bulletNumber: "Numbered lines",
+      bulletDot: "Bulleted lines",
+      bulletHint: "Each line of a note is prefixed for display only; the prefix is never saved.",
       showWeekend: "Weekend tint",
       showWeekendHint: "Wash Saturday and Sunday in a softer tone.",
       showToday: "Today marker",
@@ -190,10 +192,9 @@
       settings: "设置",
       settingsClose: "关闭设置",
       tabGrid: "日历",
-      tabCell: "单元格",
       tabAbout: "关于我们",
-      tabCellHint: "单元格相关的选项会放在这里。",
-      groupStyle: "样式",
+      groupStyle: "日历样式",
+      groupCellStyle: "单元格样式",
       groupDisplay: "显示",
       groupFestival: "节日",
       groupLunar: "农历节气",
@@ -204,6 +205,10 @@
       pastWeeks: "已过星期数",
       pastWeeksHint: "当期日期上方保留的星期行数，0 即落在第一行。",
       pastWeeksValue: (count) => `${count} 行`,
+      bulletNone: "无项目符号",
+      bulletNumber: "项目数字编号",
+      bulletDot: "项目圆点",
+      bulletHint: "每行内容在显示时加上前缀，前缀不会写入文件。",
       showWeekend: "周末底色",
       showWeekendHint: "周六、周日用更淡的底色区分。",
       showToday: "今天标记",
@@ -322,6 +327,9 @@
   let calendarStyle = $state("full");
   /** Week rows kept above the anchor day in the floating frame. */
   let pastWeeks = $state(1);
+  /** How each line of a note is marked in the cell and the editor: no prefix,
+   *  a running number, or a dot. Presentation only — the stored note is plain. */
+  let cellBullet = $state("none");
   let showWeekend = $state(true);
   let showToday = $state(true);
   let showFestivals = $state(true);
@@ -334,51 +342,96 @@
 
   const SETTINGS_KEY = "dbx-calendar/settings";
 
+  /** Fields the user can pick in the settings panel, with the narrow shape
+   *  each one accepts. Centralised so the sidecar reader, the localStorage
+   *  reader and the writer all validate the same way. */
+  const SETTINGS_FIELDS = {
+    style: (value) => (value === "full" || value === "float" ? value : null),
+    pastWeeks: (value) => (Number.isInteger(value) ? Math.min(3, Math.max(0, value)) : null),
+    bullet: (value) => (value === "none" || value === "number" || value === "dot" ? value : null),
+    weekend: (value) => (typeof value === "boolean" ? value : null),
+    today: (value) => (typeof value === "boolean" ? value : null),
+    festivals: (value) => (typeof value === "boolean" ? value : null),
+    holidayBadges: (value) => (typeof value === "boolean" ? value : null),
+    lunar: (value) => (typeof value === "boolean" ? value : null),
+    terms: (value) => (typeof value === "boolean" ? value : null),
+  };
+
+  /** Applies a saved record to the state variables. Unknown or malformed keys
+   *  keep the current value, so an old cache can never break the panel. */
+  function applySettings(saved) {
+    if (!saved || typeof saved !== "object") return;
+    if (saved.style !== undefined) calendarStyle = SETTINGS_FIELDS.style(saved.style) ?? calendarStyle;
+    if (saved.pastWeeks !== undefined) pastWeeks = SETTINGS_FIELDS.pastWeeks(saved.pastWeeks) ?? pastWeeks;
+    if (saved.bullet !== undefined) cellBullet = SETTINGS_FIELDS.bullet(saved.bullet) ?? cellBullet;
+    if (saved.weekend !== undefined) showWeekend = SETTINGS_FIELDS.weekend(saved.weekend) ?? showWeekend;
+    if (saved.today !== undefined) showToday = SETTINGS_FIELDS.today(saved.today) ?? showToday;
+    if (saved.festivals !== undefined) showFestivals = SETTINGS_FIELDS.festivals(saved.festivals) ?? showFestivals;
+    if (saved.holidayBadges !== undefined) showHolidayBadges = SETTINGS_FIELDS.holidayBadges(saved.holidayBadges) ?? showHolidayBadges;
+    if (saved.lunar !== undefined) showLunar = SETTINGS_FIELDS.lunar(saved.lunar) ?? showLunar;
+    if (saved.terms !== undefined) showTerms = SETTINGS_FIELDS.terms(saved.terms) ?? showTerms;
+  }
+
   /** Preferences are a convenience, not data: when the host webview hides
    *  localStorage the calendar still works, it just forgets the choices. */
-  function readSettings() {
+  function readLocalSettings() {
     try {
-      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null");
-      if (!saved || typeof saved !== "object") return;
-      if (saved.style === "float" || saved.style === "full") calendarStyle = saved.style;
-      if (Number.isInteger(saved.pastWeeks)) pastWeeks = Math.min(3, Math.max(0, saved.pastWeeks));
-      if (typeof saved.weekend === "boolean") showWeekend = saved.weekend;
-      if (typeof saved.today === "boolean") showToday = saved.today;
-      if (typeof saved.festivals === "boolean") showFestivals = saved.festivals;
-      if (typeof saved.holidayBadges === "boolean") showHolidayBadges = saved.holidayBadges;
-      if (typeof saved.lunar === "boolean") showLunar = saved.lunar;
-      if (typeof saved.terms === "boolean") showTerms = saved.terms;
+      return JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null");
     } catch {
       // No storage, or a malformed record: keep the defaults.
+      return null;
     }
   }
 
-  function writeSettings() {
+  function currentSettings() {
+    return {
+      style: calendarStyle,
+      pastWeeks,
+      bullet: cellBullet,
+      weekend: showWeekend,
+      today: showToday,
+      festivals: showFestivals,
+      holidayBadges: showHolidayBadges,
+      lunar: showLunar,
+      terms: showTerms,
+    };
+  }
+
+  function writeLocalSettings(settings) {
     try {
-      localStorage.setItem(
-        SETTINGS_KEY,
-        JSON.stringify({
-          style: calendarStyle,
-          pastWeeks,
-          weekend: showWeekend,
-          today: showToday,
-          festivals: showFestivals,
-          holidayBadges: showHolidayBadges,
-          lunar: showLunar,
-          terms: showTerms,
-        }),
-      );
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch {
       // Storage unavailable: the session keeps its choices, nothing else to do.
     }
   }
 
-  readSettings();
+  const savedLocal = readLocalSettings();
+  if (savedLocal) applySettings(savedLocal);
+
   settingsLoaded = true;
+  /** Set once the sidecar has been asked for its copy. Until then the effect
+   *  below must not write the sidecar: the in-page cache may hold stale values
+   *  from an older release, and letting them win would defeat the upgrade
+   *  path the persisted file exists for. */
+  let sidecarChecked = $state(false);
+
+  /** Pulls the persisted preferences from the sidecar once the bridge is up.
+   *  The sidecar file survives reinstalls and upgrades, so it wins over the
+   *  in-page cache whenever it has anything to say. */
+  async function loadPersistedSettings() {
+    const reply = await readSettingsStorage();
+    if (reply.ok && reply.persisted && Object.keys(reply.settings).length > 0) {
+      applySettings(reply.settings);
+      writeLocalSettings(reply.settings);
+    }
+    sidecarChecked = true;
+  }
 
   $effect(() => {
     if (!settingsLoaded) return;
-    writeSettings();
+    const settings = currentSettings();
+    writeLocalSettings(settings);
+    if (sidecarChecked) writeSettingsStorage(settings);
   });
   let searchOpen = $state(false);
   let searchQuery = $state("");
@@ -599,7 +652,6 @@
    *  the rail and anything else that has to name a pane. */
   const settingsTabs = $derived([
     { id: "grid", label: text.tabGrid, icon: calendarIcon },
-    { id: "cell", label: text.tabCell, icon: cellIcon },
     { id: "about", label: text.tabAbout, icon: infoIcon },
   ]);
 
@@ -661,12 +713,76 @@
     closeSearch();
   }
 
+  /** The prefix a fresh note starts with, so a new editor already reads as a
+   *  list instead of waiting for the first Enter. */
+  function firstBulletPrefix() {
+    return cellBullet === "number" ? "1. " : "• ";
+  }
+
   function openEditor(cell) {
     // Opening the editor is also an explicit choice of that day, so it takes
     // the same amber selection as a search result.
     selectDate(cell.key);
     editingKey = cell.key;
-    draft = notes[cell.key] ?? "";
+    // Prefixes are part of the editing surface, not the note: showing them here
+    // keeps the textarea and the cell reading the same, and stripping them on
+    // save keeps the stored text plain.
+    draft = decorateNote(notes[cell.key] ?? "");
+    if (!draft && cellBullet !== "none") draft = firstBulletPrefix();
+  }
+
+  /**
+   * A line prefix is derived from the note text each time it renders, so the
+   * number always follows the line order and nothing extra reaches storage.
+   * Blank lines stay blank: they are spacing, not items.
+   */
+  function decorateNote(value) {
+    if (cellBullet === "none" || !value) return value;
+    let item = 0;
+    return value
+      .split("\n")
+      .map((line) => {
+        if (!line.trim()) return line;
+        item += 1;
+        return cellBullet === "number" ? `${item}. ${line}` : `• ${line}`;
+      })
+      .join("\n");
+  }
+
+  /** Removes exactly the prefixes this style introduces, and nothing a person
+   *  may have typed themselves in a different shape. */
+  function stripNotePrefixes(value) {
+    if (cellBullet === "none") return value;
+    const pattern = cellBullet === "number" ? /^\s*\d+[.、)]\s?/ : /^\s*[•·]\s?/;
+    return value
+      .split("\n")
+      .map((line) => line.replace(pattern, ""))
+      .join("\n");
+  }
+
+  /** Enter in the editor starts the next item, carrying the same prefix the
+   *  cell would show. Shift+Enter keeps its native newline so a note can still
+   *  hold a soft break. */
+  function handleEditorKeydown(event) {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      saveNote();
+      return;
+    }
+    if (event.key !== "Enter" || event.shiftKey || event.altKey || cellBullet === "none") {
+      return;
+    }
+    event.preventDefault();
+    const field = event.currentTarget;
+    const start = field.selectionStart;
+    const before = field.value.slice(0, start);
+    const item = before.split("\n").filter((line) => line.trim()).length + 1;
+    const prefix = cellBullet === "number" ? `${item}. ` : "• ";
+    const inserted = `\n${prefix}`;
+    field.value = field.value.slice(0, start) + inserted + field.value.slice(field.selectionEnd);
+    const caret = start + inserted.length;
+    field.setSelectionRange(caret, caret);
+    draft = field.value;
   }
 
   function closeEditor() {
@@ -692,7 +808,14 @@
   });
 
   async function saveNote() {
-    await writeNote(editingKey, draft.trim());
+    // A draft that only holds prefixes was never really written: saving it
+    // would store an empty entry over a note the user may have meant to keep.
+    const value = stripNotePrefixes(draft).trim();
+    if (!value) {
+      closeEditor();
+      return;
+    }
+    await writeNote(editingKey, value);
     closeEditor();
   }
 
@@ -1207,6 +1330,9 @@
     const locale = context?.locale ?? hostLocale();
     if (locale) lang = locale.toLowerCase().startsWith("zh") ? "zh" : "en";
 
+    // The sidecar file survives reinstalls and upgrades, so it is pulled after
+    // the bridge is up and wins over the in-page cache.
+    await loadPersistedSettings();
     await loadNotes();
   }
 
@@ -1471,7 +1597,7 @@
             {/if}
           </span>
           {#if notes[cell.key]}
-            <span class="note" title={notes[cell.key]}>{notes[cell.key]}</span>
+            <span class="note" title={decorateNote(notes[cell.key])}>{decorateNote(notes[cell.key])}</span>
           {/if}
         </button>
       {/each}
@@ -1587,12 +1713,7 @@
         bind:this={editorInput}
         bind:value={draft}
         placeholder={text.placeholder}
-        onkeydown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault();
-            saveNote();
-          }
-        }}
+        onkeydown={handleEditorKeydown}
       ></textarea>
       <div class="editor-actions">
         {#if notes[editingKey]}
@@ -1864,6 +1985,48 @@
                 </div>
               </section>
 
+              <section class="settings-group">
+                <h3 class="group-head">{text.groupCellStyle}</h3>
+                <div class="group-body">
+                  <!-- The three marks are compared, not chosen from a list, so
+                       they sit side by side like the calendar styles above. -->
+                  <div class="bullet-choices">
+                    {#each [
+                      { id: "none", label: text.bulletNone },
+                      { id: "number", label: text.bulletNumber },
+                      { id: "dot", label: text.bulletDot },
+                    ] as option (option.id)}
+                      <label class="style-choice" class:active={cellBullet === option.id}>
+                        <input
+                          type="radio"
+                          name="cell-bullet"
+                          value={option.id}
+                          class="style-radio"
+                          checked={cellBullet === option.id}
+                          onchange={() => (cellBullet = option.id)}
+                        />
+                        <span class="bullet-preview" aria-hidden="true">
+                          {#each [1, 2, 3] as item (item)}
+                            <span class="bullet-line">
+                              <span class="bullet-mark"
+                                >{option.id === "number"
+                                  ? item
+                                  : option.id === "dot"
+                                    ? "•"
+                                    : ""}</span
+                              >
+                              <span class="bullet-bar"></span>
+                            </span>
+                          {/each}
+                        </span>
+                        <span class="style-name">{option.label}</span>
+                      </label>
+                    {/each}
+                  </div>
+                  <p class="group-note">{text.bulletHint}</p>
+                </div>
+              </section>
+
               {#each [[text.groupDisplay, displaySettings], [text.groupFestival, festivalSettings], [text.groupLunar, lunarSettings]] as [title, rows] (title)}
                 <section class="settings-group">
                   <h3 class="group-head">{title}</h3>
@@ -1886,11 +2049,6 @@
                 </section>
               {/each}
             </div>
-          {:else if settingsTab === "cell"}
-            <p class="pane-empty">
-              <span class="pane-empty-title">{text.tabCell}</span>
-              {text.tabCellHint}
-            </p>
           {:else}
             <div class="about">
               <header class="about-identity">
@@ -3077,24 +3235,6 @@
     overscroll-behavior: contain;
   }
 
-  /* An empty pane states what will live here instead of pretending to hold
-     controls that do nothing yet. */
-  .pane-empty {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    max-width: 44ch;
-    margin: 0;
-    color: var(--muted);
-    font-size: 12.5px;
-    line-height: 1.6;
-  }
-  .pane-empty-title {
-    color: CanvasText;
-    font-size: 13px;
-    font-weight: 600;
-  }
-
   /* Settings are grouped by the part of the calendar they change, and every
      group is a hairline ledger: label and explanation on the left, the control
      on the right. The rule between rows is the only divider, so the pane reads
@@ -3242,12 +3382,67 @@
   .style-name {
     font-size: 12.5px;
     font-weight: 600;
+    line-height: 1.2;
   }
   .style-note {
     color: var(--muted);
     font-size: 11px;
     line-height: 1.4;
     text-align: center;
+  }
+
+  /* Three marks, same card as the calendar styles so the two choices read as
+     siblings rather than two different widgets. Cards align their content to
+     one edge: the three names are different lengths, and centring each would
+     leave the row ragged. */
+  .bullet-choices {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .bullet-choices .style-choice {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .bullet-choices .style-name {
+    align-self: stretch;
+    white-space: nowrap;
+  }
+  .bullet-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+    max-width: 64px;
+    padding: 6px 0;
+  }
+  .bullet-line {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    /* A fixed row keeps the three previews the same height: the "none" mark
+       is an empty string and would otherwise collapse its line. */
+    height: 11px;
+  }
+  .bullet-mark {
+    flex: none;
+    width: 9px;
+    color: var(--muted);
+    font-size: 9px;
+    line-height: 11px;
+    text-align: right;
+  }
+  .bullet-bar {
+    flex: 1;
+    height: 4px;
+    border-radius: 1px;
+    background: color-mix(in srgb, CanvasText 17%, transparent);
+  }
+  .group-note {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.5;
   }
 
   .switch {

@@ -43,3 +43,25 @@ export async function invoke(method, params = {}) {
     return { ok: false, error: error?.message ?? String(error) };
   }
 }
+
+/**
+ * Reads plugin preferences from the sidecar's persisted file. Returns
+ * `persisted:false` when the sidecar keeps no data directory, so the caller
+ * can keep relying on its in-page cache instead of treating that as an error.
+ */
+export async function readSettingsStorage() {
+  const reply = await invoke("dbx-calendar/settings/get");
+  if (!reply.ok) return { ok: false, persisted: false };
+  const settings = reply.value?.settings;
+  return { ok: true, persisted: Boolean(reply.value?.persistence), settings: settings ?? {} };
+}
+
+/**
+ * Writes plugin preferences through the sidecar. Accepts a partial object:
+ * the sidecar merges it over the stored settings, so a change to one key
+ * cannot reset keys an older or newer release added.
+ */
+export async function writeSettingsStorage(settings) {
+  const reply = await invoke("dbx-calendar/settings/set", { settings });
+  return reply.ok;
+}

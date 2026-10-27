@@ -14,6 +14,7 @@ type plugin struct {
 	connections map[string]*connNotes
 	notes       *notesStore
 	exports     *exportStore
+	settings    *settingsStore
 }
 
 // workbenchNamespace is the storage namespace used when the host addresses the
@@ -113,6 +114,27 @@ func (plugin *plugin) Handle(
 			return nil, dbxpluginsdk.NewError(-32603, err.Error())
 		}
 		return map[string]any{"success": true, "notes": all}, nil
+	case "dbx-calendar/settings/get":
+		settings, err := plugin.settings.Get()
+		if err != nil {
+			return nil, settingsError(err)
+		}
+		return map[string]any{"settings": settings, "persistence": plugin.settings.Persistence()}, nil
+	case "dbx-calendar/settings/set":
+		incoming, ok := decodeSettings(values["settings"])
+		if !ok {
+			return nil, dbxpluginsdk.NewError(-32602, "Settings must be an object")
+		}
+		for key := range incoming {
+			if err := validSettingsKey(key); err != nil {
+				return nil, dbxpluginsdk.NewError(-32602, err.Error())
+			}
+		}
+		stored, err := plugin.settings.Set(incoming)
+		if err != nil {
+			return nil, settingsError(err)
+		}
+		return map[string]any{"success": true, "settings": stored}, nil
 	case "dbx-calendar/export/destination":
 		return map[string]any{"directory": plugin.exports.Destination()}, nil
 	case "dbx-calendar/export/pick":
@@ -208,6 +230,16 @@ func notesError(err error) *dbxpluginsdk.PluginError {
 	return dbxpluginsdk.NewError(-32602, err.Error())
 }
 
+// settingsError maps settings failures onto the protocol the same way. A
+// missing data directory leaves the UI on its in-page fallback rather than
+// reporting a failed save the user can do nothing about.
+func settingsError(err error) *dbxpluginsdk.PluginError {
+	if errors.Is(err, ErrNoDataDir) {
+		return dbxpluginsdk.NewError(-32002, "Settings cannot be persisted: plugin data directory is unavailable")
+	}
+	return dbxpluginsdk.NewError(-32602, err.Error())
+}
+
 func requestConnectionID(values map[string]any) (string, *dbxpluginsdk.PluginError) {
 	connectionID := optionalConnectionID(values)
 	if connectionID == "" {
@@ -267,6 +299,7 @@ func main() {
 		connections: map[string]*connNotes{},
 		notes:       newNotesStore(dataDir),
 		exports:     newExportStore(dataDir),
+		settings:    newSettingsStore(dataDir),
 	})
 	if err := server.Serve(); err != nil {
 		log.Fatal(err)

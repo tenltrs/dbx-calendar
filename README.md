@@ -41,11 +41,12 @@ Also available in [简体中文](README.zh-CN.md).
 
 **Settings**
 
-- The toolbar menu opens a settings sheet with a rail on the left: calendar, cells, and about
-- The calendar pane is grouped into style, display, festivals, and lunar calendar:
+- The toolbar menu opens a settings sheet with a rail on the left: calendar and about
+- The calendar pane is grouped into style, cell style, display, festivals, and lunar calendar:
   - Style picks a "full month" (always starting on the 1st) or a "floating month" (the anchor day keeps its week row, with "weeks above" rows kept over it and no month alignment; the 1st of a month shows the month's name, and a lunar month's first day reads 农历X月)
+  - Cell style prefixes each note line with nothing, a running number, or a bullet dot; the editor continues the prefix on `Enter`. Prefixes are display-only — the note itself is saved without them
   - Display can turn off the weekend tint and today marker; festivals can hide festival names and off/work badges; the lunar group can hide lunar dates and solar terms (a hidden layer falls through to the next)
-- Preferences live in the page's `localStorage`; when the host hides storage they last for the session
+- Preferences are persisted by the Go sidecar in `settings.json` under the plugin data directory, so they survive reinstalls and upgrades; `localStorage` acts as the cache and the fallback when the sidecar keeps no data directory, and a value read back from the sidecar always wins
 - The about pane reads the version, publisher, homepage and source from `manifest.json`
 - `Esc` or the close button dismisses it and returns focus to the toolbar menu
 
@@ -129,6 +130,7 @@ src/
 backend/
   main.go            sidecar entry point and the RPC method table
   notes.go           atomic per-namespace note storage
+  settings.go        atomic plugin preference storage
   export.go          writes the exported file wherever the user pointed it
   powershell.go      native save dialog, Explorer and the clipboard (Windows)
   datadir.go         resolves the host-provided data directory
