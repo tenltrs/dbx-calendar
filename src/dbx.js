@@ -9,9 +9,15 @@ const bridge = typeof window !== "undefined" ? window.dbxPlugin : undefined;
 
 export const bridgeAvailable = Boolean(bridge);
 
-/** Host locale, or "en" outside a host. */
+/**
+ * Host locale, or null outside a host.
+ *
+ * Null rather than a guess: a page opened straight from the browser has no
+ * locale to report, and the caller is the one that knows which language to
+ * fall back to.
+ */
 export function hostLocale() {
-  return bridge?.locale ?? bridge?.context?.locale ?? "en";
+  return bridge?.locale ?? bridge?.context?.locale ?? null;
 }
 
 export async function whenReady() {

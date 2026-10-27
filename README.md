@@ -47,7 +47,7 @@ Also available in [简体中文](README.zh-CN.md).
 
 **Host integration**
 
-- Follows the DBX host locale, Chinese or English
+- Follows the DBX host locale, Chinese or English; a page opened outside DBX starts in Chinese
 - Uses the host's `Canvas` / `CanvasText` theme colours
 
 ## Requirements

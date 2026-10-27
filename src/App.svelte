@@ -232,7 +232,17 @@
     },
   };
 
-  let lang = $state("en");
+  // Chinese is the default: the plugin ships for a Chinese-first host, and a
+  // page opened directly in a browser has no locale to read, so anything else
+  // would show English to the people most likely to open it that way.
+  //
+  // A locale the bridge already carries is read synchronously here rather than
+  // waited for, so an English host never paints a frame of Chinese first.
+  // init() then confirms it against whatever the ready handshake reports.
+  const bootstrapLocale = hostLocale();
+  let lang = $state(
+    bootstrapLocale && !bootstrapLocale.toLowerCase().startsWith("zh") ? "en" : "zh",
+  );
   let text = $derived(copy[lang]);
 
   const now = new Date();
@@ -1022,17 +1032,23 @@
    * functional but unable to store anything.
    */
   async function init() {
-    if (hostLocale().toLowerCase().startsWith("zh")) lang = "zh";
-
+    // An explicit host locale always wins, in both directions: the mount
+    // default is only what applies when nobody tells us anything.
     const context = await whenReady();
     const locale = context?.locale ?? hostLocale();
-    if (locale?.toLowerCase().startsWith("zh")) lang = "zh";
+    if (locale) lang = locale.toLowerCase().startsWith("zh") ? "zh" : "en";
 
     await loadNotes();
   }
 
   onMount(() => {
     void init();
+  });
+
+  // The document keeps the same language as the copy, so assistive tech and the
+  // browser's own spellcheck/line-breaking follow a switch to English too.
+  $effect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   });
 </script>
 
