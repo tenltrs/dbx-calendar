@@ -72,8 +72,30 @@
       tabGrid: "Calendar",
       tabCell: "Cells",
       tabAbout: "About",
-      tabGridHint: "Calendar options will live here.",
       tabCellHint: "Cell options will live here.",
+      groupStyle: "Style",
+      groupDisplay: "Display",
+      groupFestival: "Festivals",
+      groupLunar: "Lunar calendar",
+      styleFull: "Full month",
+      styleFullNote: "Always starts on the 1st.",
+      styleFloat: "Floating month",
+      styleFloatNote: "Keeps the anchor day on one row.",
+      pastWeeks: "Weeks above",
+      pastWeeksHint: "Week rows kept above the anchor day; 0 puts it in the first row.",
+      pastWeeksValue: (count) => `${count} ${count === 1 ? "row" : "rows"}`,
+      showWeekend: "Weekend tint",
+      showWeekendHint: "Wash Saturday and Sunday in a softer tone.",
+      showToday: "Today marker",
+      showTodayHint: "Mark today's number in the accent colour.",
+      showFestivals: "Festival names",
+      showFestivalsHint: "Lunar festivals and statutory holidays.",
+      showHolidayBadges: "Day off / work marks",
+      showHolidayBadgesHint: "Show the off and workday badges when a schedule exists.",
+      showLunar: "Lunar date",
+      showLunarHint: "The lunar day under the Gregorian number.",
+      showTerms: "Solar terms",
+      showTermsHint: "On a term day, show the term instead of the lunar date.",
       aboutName: "Calendar Notes",
       aboutTagline: "A month view for keeping notes, day by day.",
       aboutIntro:
@@ -170,8 +192,30 @@
       tabGrid: "日历",
       tabCell: "单元格",
       tabAbout: "关于我们",
-      tabGridHint: "日历相关的选项会放在这里。",
       tabCellHint: "单元格相关的选项会放在这里。",
+      groupStyle: "样式",
+      groupDisplay: "显示",
+      groupFestival: "节日",
+      groupLunar: "农历节气",
+      styleFull: "完整月份",
+      styleFullNote: "始终从 1 号开始排列。",
+      styleFloat: "浮动月份",
+      styleFloatNote: "当期日期固定在设定的行。",
+      pastWeeks: "已过星期数",
+      pastWeeksHint: "当期日期上方保留的星期行数，0 即落在第一行。",
+      pastWeeksValue: (count) => `${count} 行`,
+      showWeekend: "周末底色",
+      showWeekendHint: "周六、周日用更淡的底色区分。",
+      showToday: "今天标记",
+      showTodayHint: "用强调色标出今天的日期。",
+      showFestivals: "节日名称",
+      showFestivalsHint: "农历节日与法定节日名称。",
+      showHolidayBadges: "休 / 班标记",
+      showHolidayBadgesHint: "有放假安排时显示「休」和「班」。",
+      showLunar: "农历日期",
+      showLunarHint: "公历日下方显示农历。",
+      showTerms: "二十四节气",
+      showTermsHint: "节气当天用它替代农历日期。",
       aboutName: "日历笔记",
       aboutTagline: "在月视图上，按天记录笔记。",
       aboutIntro:
@@ -270,6 +314,72 @@
    *  the first pane so its shape is predictable. */
   let settingsTab = $state("grid");
   let settingsPanel = $state(null);
+
+  /** How the grid is framed. "full" is one calendar month from its first day;
+   *  "float" slides the window so an anchor day always lands on the same week
+   *  row, which is how a planner reads dates — by distance from today, not by
+   *  which month page they fall on. */
+  let calendarStyle = $state("full");
+  /** Week rows kept above the anchor day in the floating frame. */
+  let pastWeeks = $state(1);
+  let showWeekend = $state(true);
+  let showToday = $state(true);
+  let showFestivals = $state(true);
+  let showHolidayBadges = $state(true);
+  let showLunar = $state(true);
+  let showTerms = $state(true);
+  /** Set once the saved preferences have been read, so the first save does not
+   *  overwrite them before they are applied. */
+  let settingsLoaded = $state(false);
+
+  const SETTINGS_KEY = "dbx-calendar/settings";
+
+  /** Preferences are a convenience, not data: when the host webview hides
+   *  localStorage the calendar still works, it just forgets the choices. */
+  function readSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "null");
+      if (!saved || typeof saved !== "object") return;
+      if (saved.style === "float" || saved.style === "full") calendarStyle = saved.style;
+      if (Number.isInteger(saved.pastWeeks)) pastWeeks = Math.min(3, Math.max(0, saved.pastWeeks));
+      if (typeof saved.weekend === "boolean") showWeekend = saved.weekend;
+      if (typeof saved.today === "boolean") showToday = saved.today;
+      if (typeof saved.festivals === "boolean") showFestivals = saved.festivals;
+      if (typeof saved.holidayBadges === "boolean") showHolidayBadges = saved.holidayBadges;
+      if (typeof saved.lunar === "boolean") showLunar = saved.lunar;
+      if (typeof saved.terms === "boolean") showTerms = saved.terms;
+    } catch {
+      // No storage, or a malformed record: keep the defaults.
+    }
+  }
+
+  function writeSettings() {
+    try {
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify({
+          style: calendarStyle,
+          pastWeeks,
+          weekend: showWeekend,
+          today: showToday,
+          festivals: showFestivals,
+          holidayBadges: showHolidayBadges,
+          lunar: showLunar,
+          terms: showTerms,
+        }),
+      );
+    } catch {
+      // Storage unavailable: the session keeps its choices, nothing else to do.
+    }
+  }
+
+  readSettings();
+  settingsLoaded = true;
+
+  $effect(() => {
+    if (!settingsLoaded) return;
+    writeSettings();
+  });
   let searchOpen = $state(false);
   let searchQuery = $state("");
   let searchInput = $state(null);
@@ -327,7 +437,8 @@
   /** Lunar date, solar term and holiday marker for the visible grid, resolved once per month. */
   const dayInfos = $derived.by(() => {
     const map = new Map();
-    for (const week of weeks) for (const cell of week) map.set(cell.key, dayInfo(cell.key, lang));
+    const layers = { festivals: showFestivals, terms: showTerms, lunar: showLunar };
+    for (const week of weeks) for (const cell of week) map.set(cell.key, dayInfo(cell.key, lang, layers));
     return map;
   });
 
@@ -335,8 +446,16 @@
     return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
 
+  /** Rows in the floating frame: a fixed window keeps the calendar height
+   *  steady while the dates slide from day to day. */
+  const FLOAT_ROWS = 5;
+
   /** Six-column week rows starting on Monday, padded with the neighbouring months' days. */
   function buildWeeks(year, month) {
+    return calendarStyle === "float" ? buildFloatingWeeks(year, month) : buildMonthWeeks(year, month);
+  }
+
+  function buildMonthWeeks(year, month) {
     const first = new Date(year, month, 1);
     const lead = (first.getDay() + 6) % 7;
     const rows = Math.ceil((lead + new Date(year, month + 1, 0).getDate()) / 7);
@@ -349,6 +468,39 @@
           day: date.getDate(),
           inMonth: date.getMonth() === month,
           weekend: col >= 5,
+        };
+      }),
+    );
+  }
+
+  /** Week rows in the floating frame: the anchor day keeps the same row every
+   *  month, so the weeks above and below it are the dates a reader actually
+   *  plans with. The anchor is today's day of month, clamped for short months,
+   *  which keeps the current month identical to "today is on this row".
+   *
+   *  Every cell is in range here: the window deliberately runs past the month
+   *  boundaries, so dimming the neighbours would grey out most of the grid. */
+  function buildFloatingWeeks(year, month) {
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const anchorDay = Math.min(now.getDate(), lastDay);
+    const anchor = new Date(year, month, anchorDay);
+    const lead = (anchor.getDay() + 6) % 7;
+    const start = new Date(year, month, anchorDay - lead - pastWeeks * 7);
+
+    return Array.from({ length: FLOAT_ROWS }, (_, row) =>
+      Array.from({ length: 7 }, (_, col) => {
+        const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + row * 7 + col);
+        return {
+          key: keyOf(date.getFullYear(), date.getMonth(), date.getDate()),
+          day: date.getDate(),
+          inMonth: true,
+          weekend: col >= 5,
+          /** The 1st of a month carries its month name instead of the bare
+           *  number: in a window that runs across months, "1" alone would not
+           *  say which month it opens. */
+          monthLabel: date.getDate() === 1
+            ? new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "long" }).format(date)
+            : null,
         };
       }),
     );
@@ -449,6 +601,23 @@
     { id: "grid", label: text.tabGrid, icon: calendarIcon },
     { id: "cell", label: text.tabCell, icon: cellIcon },
     { id: "about", label: text.tabAbout, icon: infoIcon },
+  ]);
+
+  /** Toggle rows are described as data so the three groups render the same
+   *  label-hint-switch shape without three copies of it in the markup. */
+  const displaySettings = $derived([
+    { key: "weekend", label: text.showWeekend, hint: text.showWeekendHint, value: showWeekend, set: (on) => (showWeekend = on) },
+    { key: "today", label: text.showToday, hint: text.showTodayHint, value: showToday, set: (on) => (showToday = on) },
+  ]);
+
+  const festivalSettings = $derived([
+    { key: "festivals", label: text.showFestivals, hint: text.showFestivalsHint, value: showFestivals, set: (on) => (showFestivals = on) },
+    { key: "badges", label: text.showHolidayBadges, hint: text.showHolidayBadgesHint, value: showHolidayBadges, set: (on) => (showHolidayBadges = on) },
+  ]);
+
+  const lunarSettings = $derived([
+    { key: "lunar", label: text.showLunar, hint: text.showLunarHint, value: showLunar, set: (on) => (showLunar = on) },
+    { key: "terms", label: text.showTerms, hint: text.showTermsHint, value: showTerms, set: (on) => (showTerms = on) },
   ]);
 
   function openSettings() {
@@ -1258,7 +1427,7 @@
     style="grid-template-rows: auto repeat({weeks.length}, minmax(0, 1fr));"
   >
     {#each text.weekdays as label, index (label)}
-      <div class="weekday" class:weekend={index >= 5}>{label}</div>
+      <div class="weekday" class:weekend={showWeekend && index >= 5}>{label}</div>
     {/each}
 
     {#each weeks as week, weekIndex (weekIndex)}
@@ -1268,8 +1437,8 @@
           type="button"
           class="cell"
           class:outside={!cell.inMonth}
-          class:weekend={cell.weekend}
-          class:today={cell.key === todayKey}
+          class:weekend={showWeekend && cell.weekend}
+          class:today={showToday && cell.key === todayKey}
           class:selected={cell.key === selectedDate}
           aria-label="{cell.key}, {info.text}{info.status
             ? `, ${info.status === 'off' ? text.dayOff : text.workday}`
@@ -1287,9 +1456,15 @@
           }}
         >
           <span class="cell-head">
-            <span class="date">{cell.day}</span>
-            <span class="lunar">{info.text}</span>
-            {#if info.status}
+            {#if cell.monthLabel}
+              <span class="date month-day">{cell.monthLabel}</span>
+            {:else}
+              <span class="date">{cell.day}</span>
+            {/if}
+            {#if info.text}
+              <span class="lunar">{info.text}</span>
+            {/if}
+            {#if info.status && showHolidayBadges}
               <span class="badge" class:off={info.status === "off"}>
                 {info.status === "off" ? text.dayOff : text.workday}
               </span>
@@ -1625,10 +1800,92 @@
 
         <section class="settings-pane" aria-live="polite">
           {#if settingsTab === "grid"}
-            <p class="pane-empty">
-              <span class="pane-empty-title">{text.tabGrid}</span>
-              {text.tabGridHint}
-            </p>
+            <div class="settings-groups">
+              <section class="settings-group">
+                <h3 class="group-head">{text.groupStyle}</h3>
+                <div class="group-body">
+                  <!-- A pair of small grids rather than a dropdown: the choice is
+                       spatial, so it reads faster shown than named. -->
+                  <div class="style-choices">
+                    <label class="style-choice" class:active={calendarStyle === "full"}>
+                      <input
+                        type="radio"
+                        name="calendar-style"
+                        value="full"
+                        class="style-radio"
+                        checked={calendarStyle === "full"}
+                        onchange={() => (calendarStyle = "full")}
+                      />
+                      <span class="style-preview" aria-hidden="true">
+                        {#each Array(28) as _, index (index)}
+                          <span class:blank={index < 3}></span>
+                        {/each}
+                      </span>
+                      <span class="style-name">{text.styleFull}</span>
+                      <span class="style-note">{text.styleFullNote}</span>
+                    </label>
+                    <label class="style-choice" class:active={calendarStyle === "float"}>
+                      <input
+                        type="radio"
+                        name="calendar-style"
+                        value="float"
+                        class="style-radio"
+                        checked={calendarStyle === "float"}
+                        onchange={() => (calendarStyle = "float")}
+                      />
+                      <span class="style-preview" aria-hidden="true">
+                        {#each Array(28) as _, index (index)}
+                          <span class:anchor={index === 9}></span>
+                        {/each}
+                      </span>
+                      <span class="style-name">{text.styleFloat}</span>
+                      <span class="style-note">{text.styleFloatNote}</span>
+                    </label>
+                  </div>
+
+                  {#if calendarStyle === "float"}
+                    <div class="setting-row">
+                      <span class="setting-copy">
+                        <span class="setting-label">{text.pastWeeks}</span>
+                        <span class="setting-hint">{text.pastWeeksHint}</span>
+                      </span>
+                      <select
+                        class="setting-select"
+                        aria-label={text.pastWeeks}
+                        value={String(pastWeeks)}
+                        onchange={(event) => (pastWeeks = Number(event.currentTarget.value))}
+                      >
+                        {#each [0, 1, 2, 3] as count (count)}
+                          <option value={String(count)}>{text.pastWeeksValue(count)}</option>
+                        {/each}
+                      </select>
+                    </div>
+                  {/if}
+                </div>
+              </section>
+
+              {#each [[text.groupDisplay, displaySettings], [text.groupFestival, festivalSettings], [text.groupLunar, lunarSettings]] as [title, rows] (title)}
+                <section class="settings-group">
+                  <h3 class="group-head">{title}</h3>
+                  <div class="group-body">
+                    {#each rows as row (row.key)}
+                      <label class="setting-row">
+                        <span class="setting-copy">
+                          <span class="setting-label">{row.label}</span>
+                          <span class="setting-hint">{row.hint}</span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          class="switch"
+                          checked={row.value}
+                          onchange={(event) => row.set(event.currentTarget.checked)}
+                        />
+                      </label>
+                    {/each}
+                  </div>
+                </section>
+              {/each}
+            </div>
           {:else if settingsTab === "cell"}
             <p class="pane-empty">
               <span class="pane-empty-title">{text.tabCell}</span>
@@ -2137,6 +2394,16 @@
     border-radius: 5px;
     font-size: 12px;
     font-weight: 500;
+  }
+
+  /* "十一月" instead of a bare 1: it is wider than a two-digit day, so it
+     loses the pill's fixed width and drops a size to sit beside the rest. */
+  .date.month-day {
+    min-width: 0;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 11px;
+    white-space: nowrap;
   }
 
   /* Lunar date, solar term or festival name, sitting right of the day number. */
@@ -2826,6 +3093,199 @@
     color: CanvasText;
     font-size: 13px;
     font-weight: 600;
+  }
+
+  /* Settings are grouped by the part of the calendar they change, and every
+     group is a hairline ledger: label and explanation on the left, the control
+     on the right. The rule between rows is the only divider, so the pane reads
+     as one sheet rather than a stack of cards. */
+  .settings-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    max-width: 60ch;
+  }
+  /* A short amber tick before the title — the same accent a chosen date and
+     the active rail entry carry — so each group reads as a marked heading
+     rather than a floating label. */
+  .group-head {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 8px;
+    padding-left: 10px;
+    color: CanvasText;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .group-head::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 2.5px;
+    height: 13px;
+    transform: translateY(-50%);
+    border-radius: 2px;
+    background: var(--select);
+  }
+  .group-head::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+  .group-body {
+    display: flex;
+    flex-direction: column;
+  }
+  .setting-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .group-body > .setting-row:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .setting-copy {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .setting-label {
+    font-size: 12.5px;
+  }
+  .setting-hint {
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .setting-select {
+    flex: none;
+    min-width: 96px;
+    padding: 5px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    color: inherit;
+    background: Canvas;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .setting-select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  /* A pair of small grids rather than a dropdown: the choice is spatial, so it
+     reads faster shown than named. */
+  .style-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .style-choice {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 12px 10px 10px;
+    border: 1px solid var(--rule);
+    border-radius: 9px;
+    cursor: pointer;
+  }
+  .style-choice:hover {
+    background: var(--tint);
+  }
+  .style-choice.active {
+    border-color: var(--select);
+    background: color-mix(in srgb, var(--select) 7%, transparent);
+  }
+  .style-choice:has(.style-radio:focus) {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .style-radio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .style-preview {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    width: 84px;
+  }
+  .style-preview span {
+    aspect-ratio: 1;
+    border-radius: 1.5px;
+    background: color-mix(in srgb, CanvasText 17%, transparent);
+  }
+  .style-preview span.blank {
+    background: transparent;
+  }
+  .style-preview span.anchor {
+    background: var(--select);
+  }
+  .style-name {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .style-note {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+    text-align: center;
+  }
+
+  .switch {
+    position: relative;
+    flex: none;
+    width: 34px;
+    height: 20px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, CanvasText 20%, transparent);
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: background 120ms ease;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: Canvas;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+    transition: transform 120ms ease;
+  }
+  .switch:checked {
+    background: var(--accent);
+  }
+  .switch:checked::after {
+    transform: translateX(14px);
+  }
+  .switch:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .about {

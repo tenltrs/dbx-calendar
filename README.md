@@ -42,6 +42,10 @@ Also available in [简体中文](README.zh-CN.md).
 **Settings**
 
 - The toolbar menu opens a settings sheet with a rail on the left: calendar, cells, and about
+- The calendar pane is grouped into style, display, festivals, and lunar calendar:
+  - Style picks a "full month" (always starting on the 1st) or a "floating month" (the anchor day keeps its week row, with "weeks above" rows kept over it and no month alignment; the 1st of a month shows the month's name, and a lunar month's first day reads 农历X月)
+  - Display can turn off the weekend tint and today marker; festivals can hide festival names and off/work badges; the lunar group can hide lunar dates and solar terms (a hidden layer falls through to the next)
+- Preferences live in the page's `localStorage`; when the host hides storage they last for the session
 - The about pane reads the version, publisher, homepage and source from `manifest.json`
 - `Esc` or the close button dismisses it and returns focus to the toolbar menu
 
