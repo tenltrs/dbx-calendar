@@ -15,6 +15,14 @@
   import previousIcon from "../assets/previous.svg";
   import nextIcon from "../assets/next.svg";
   import productIcon from "../assets/icon.svg";
+  // One icon family (single-colour, 1024 grid) for the menu and the settings
+  // rail, so the two lists read as the same hand.
+  import settingsIcon from "../assets/settings.svg";
+  import exportIcon from "../assets/export.svg";
+  import importIcon from "../assets/import.svg";
+  import calendarIcon from "../assets/calendar.svg";
+  import cellIcon from "../assets/cell.svg";
+  import infoIcon from "../assets/info.svg";
   // The About pane names a version, and the manifest is the only place it is
   // actually declared; reading it here keeps the two from drifting apart.
   import manifest from "../manifest.json";
@@ -424,11 +432,13 @@
     searchOpen = true;
   }
 
-  /** The rail is built from the copy so its order and labels stay in one place. */
+  /** The rail is built from the copy so its order and labels stay in one place.
+   *  Icons travel with the label for the same reason: one definition feeds both
+   *  the rail and anything else that has to name a pane. */
   const settingsTabs = $derived([
-    { id: "grid", label: text.tabGrid },
-    { id: "cell", label: text.tabCell },
-    { id: "about", label: text.tabAbout },
+    { id: "grid", label: text.tabGrid, icon: calendarIcon },
+    { id: "cell", label: text.tabCell, icon: cellIcon },
+    { id: "about", label: text.tabAbout, icon: infoIcon },
   ]);
 
   function openSettings() {
@@ -1097,9 +1107,18 @@
         </button>
         {#if menuOpen}
           <div class="dropdown">
-            <button type="button" onclick={openSettings}>{text.settings}</button>
-            <button type="button" onclick={openExport}>{text.export}</button>
-            <button type="button" onclick={openImport}>{text.import}</button>
+            <button type="button" onclick={openSettings}>
+              <span class="dropdown-icon" style={maskVar(settingsIcon)} aria-hidden="true"></span>
+              {text.settings}
+            </button>
+            <button type="button" onclick={openExport}>
+              <span class="dropdown-icon" style={maskVar(exportIcon)} aria-hidden="true"></span>
+              {text.export}
+            </button>
+            <button type="button" onclick={openImport}>
+              <span class="dropdown-icon" style={maskVar(importIcon)} aria-hidden="true"></span>
+              {text.import}
+            </button>
           </div>
         {/if}
       </div>
@@ -1582,6 +1601,7 @@
               aria-current={settingsTab === tab.id ? "page" : undefined}
               onclick={() => (settingsTab = tab.id)}
             >
+              <span class="settings-tab-icon" style={maskVar(tab.icon)} aria-hidden="true"></span>
               {tab.label}
             </button>
           {/each}
@@ -1960,6 +1980,10 @@
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
   }
   .dropdown button {
+    display: grid;
+    grid-template-columns: 15px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
     padding: 7px 10px;
     border: 0;
     border-radius: 6px;
@@ -1971,8 +1995,20 @@
     white-space: nowrap;
     cursor: pointer;
   }
+  /* Masked so the glyph inherits the row's colour and its hover/active states
+     come for free; nothing has to keep a second palette in sync. */
+  .dropdown-icon {
+    width: 15px;
+    height: 15px;
+    background-color: color-mix(in srgb, CanvasText 62%, transparent);
+    -webkit-mask: var(--icon) center / contain no-repeat;
+    mask: var(--icon) center / contain no-repeat;
+  }
   .dropdown button:hover {
     background: var(--tint);
+  }
+  .dropdown button:hover .dropdown-icon {
+    background-color: CanvasText;
   }
 
   /* Floating so that reporting a result never shifts the grid. */
@@ -2696,6 +2732,10 @@
   }
   .settings-tab {
     position: relative;
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
     padding: 8px 10px 8px 13px;
     border: 0;
     border-radius: 7px;
@@ -2706,9 +2746,19 @@
     text-align: left;
     cursor: pointer;
   }
+  .settings-tab-icon {
+    width: 14px;
+    height: 14px;
+    background-color: color-mix(in srgb, CanvasText 45%, transparent);
+    -webkit-mask: var(--icon) center / contain no-repeat;
+    mask: var(--icon) center / contain no-repeat;
+  }
   .settings-tab:hover {
     color: CanvasText;
     background: color-mix(in srgb, CanvasText 5%, transparent);
+  }
+  .settings-tab:hover .settings-tab-icon {
+    background-color: color-mix(in srgb, CanvasText 75%, transparent);
   }
   /* The active marker is a short amber tick, the same accent a chosen date
      carries in the grid. */
@@ -2717,6 +2767,9 @@
     background: Canvas;
     font-weight: 600;
     box-shadow: inset 0 0 0 1px var(--rule);
+  }
+  .settings-tab.active .settings-tab-icon {
+    background-color: CanvasText;
   }
   .settings-tab.active::before {
     content: "";
