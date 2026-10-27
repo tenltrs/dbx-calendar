@@ -4,7 +4,7 @@
   "icon": "assets/icon.svg",
   "tags": ["calendar", "memo", "notes", "workflow", "to-do"],
   "permissions": [],
-  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.1.8",
+  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.2.0",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
   "releaseNotes": "Refined date selection and month navigation for a smoother calendar workflow. A single click now highlights a date while double-click opens its note editor, the month picker stays aligned with the active year and month, and toolbar focus states after closing dialogs have been polished for consistency."
