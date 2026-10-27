@@ -41,7 +41,7 @@ Also available in [简体中文](README.zh-CN.md).
 
 **Settings**
 
-- The toolbar menu opens a settings sheet with a rail on the left: grid, cells, and about
+- The toolbar menu opens a settings sheet with a rail on the left: calendar, cells, and about
 - The about pane reads the version, publisher, homepage and source from `manifest.json`
 - `Esc` or the close button dismisses it and returns focus to the toolbar menu
 
