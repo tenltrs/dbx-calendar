@@ -107,7 +107,7 @@ func (store *settingsStore) Set(incoming map[string]any) (map[string]any, error)
 	snapshot := store.snapshotLocked()
 	store.mutex.Unlock()
 
-	return snapshot, store.flush(snapshot)
+	return snapshot, store.flush(settingsFile{Version: settingsSchemaVersion, Settings: snapshot})
 }
 
 func (store *settingsStore) snapshotLocked() map[string]any {
