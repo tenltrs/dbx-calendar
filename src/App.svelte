@@ -880,6 +880,31 @@
     selectedDate = date;
   }
 
+  /** Arrow-key selection on the grid: ←/→ step a day, ↑/↓ step a week, and
+   *  the view follows when the walk leaves the visible month. Returns true if
+   *  the key was ours, so the caller can preventDefault before anything else
+   *  scrolls or moves focus. */
+  function selectByArrow(event) {
+    if (!selectedDate || editingKey || exportOpen || importOpen || settingsOpen || searchOpen || monthPickerOpen || menuOpen) {
+      return false;
+    }
+    const offsets = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+    const days = offsets[event.key];
+    if (!days) return false;
+
+    const [y, m, d] = selectedDate.split("-").map(Number);
+    const next = new Date(y, m - 1, d + days);
+    selectDate(keyOf(next.getFullYear(), next.getMonth(), next.getDate()));
+
+    // Follow the selection: a walk over an edge flips the month like the
+    // toolbar buttons do, so the highlighted cell is always on screen.
+    if (next.getMonth() !== viewMonth || next.getFullYear() !== viewYear) {
+      viewYear = next.getFullYear();
+      viewMonth = next.getMonth();
+    }
+    return true;
+  }
+
   function selectSearchResult(date) {
     const [year, month] = date.split("-").map(Number);
     viewYear = year;
@@ -1127,6 +1152,13 @@
       return;
     }
 
+    // Arrow keys walk the amber selection across the grid when nothing else
+    // holds the keyboard; Escape below is what dismisses the frame's focus.
+    if (selectByArrow(event)) {
+      event.preventDefault();
+      return;
+    }
+
     if (event.key === "Escape") {
       // The editor and the export dialog are modal, so they take Escape first.
       if (editingKey) closeEditor();
@@ -1136,6 +1168,12 @@
       else if (monthPickerOpen) closeMonthPicker();
       else if (searchOpen) closeSearch();
       else if (menuOpen) menuOpen = false;
+      else {
+        // Nothing modal is open: Escape on a focused grid cell must leave no
+        // browser-drawn focus ring behind, so the cell gives the focus back.
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active.classList.contains("cell")) active.blur();
+      }
       return;
     }
 
@@ -2763,6 +2801,11 @@
   .cell:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
+  }
+  .cell:focus {
+    /* Chrome paints its own blue ring on a focused cell unless this says
+       otherwise; the visible frame is focus-visible's job alone. */
+    outline: none;
   }
   /* Days from the neighbouring months recede so the month reads as one block. */
   .cell.outside {
