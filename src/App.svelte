@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   // Imported statically on purpose. As a dynamic import Vite emits a relative
   // specifier, and the DBX host inlines the entry script, so it resolves against
   // the document root instead of /assets/ and the chunk 404s. Bundling it costs
@@ -701,11 +701,32 @@
     const next = new Date(viewYear, viewMonth + delta, 1);
     viewYear = next.getFullYear();
     viewMonth = next.getMonth();
+    focusSelectedCell();
   }
 
   function goToday() {
     viewYear = now.getFullYear();
     viewMonth = now.getMonth();
+    focusSelectedCell();
+  }
+
+  /** After a pointer click on a toolbar button the button would keep focus,
+   *  so Enter would fire it again. The grid selection is the real home base:
+   *  move focus to the selected cell (or today) so Enter opens that day's
+   *  editor instead. Only pointer paths call this — keyboard focus stays put. */
+  async function focusSelectedCell() {
+    // Arrow walks re-render the grid (and can flip the view month), so wait for
+    // the DOM to settle before moving focus — otherwise the query below can run
+    // against the old grid, or racing keydown handlers can steal focus back.
+    await tick();
+    // The today class follows the "show today" switch, and an outside cell is
+    // the previous or next month's padding, so fall back to the first real day
+    // of the shown month when neither the selection nor today is rendered.
+    const target =
+      document.querySelector(".cell.selected") ??
+      document.querySelector(".cell.today") ??
+      document.querySelector(".cell:not(.outside)");
+    target?.focus();
   }
 
   function openMonthPicker() {
@@ -760,7 +781,8 @@
     if (year < 1900 || year > 2200) return;
     viewYear = year;
     viewMonth = month;
-    closeMonthPicker();
+    closeMonthPicker({ restoreFocus: false });
+    focusSelectedCell();
   }
 
   /** True for the one month the grid is actually showing, and only while the
@@ -856,9 +878,14 @@
 
   function closeSettings() {
     settingsOpen = false;
-    // Focus goes back to the menu it was opened from, so a keyboard user is
-    // where they left off rather than at the top of the document.
-    menuButton?.focus();
+    // Focus lands on the grid selection rather than staying on the menu
+    // button: Enter should edit the selected day, not reopen the menu.
+    focusSelectedCell();
+  }
+
+  function closeExport() {
+    exportOpen = false;
+    focusSelectedCell();
   }
 
   // Focus lands on the pane already showing: a keyboard user starts inside the
@@ -868,11 +895,11 @@
     settingsPanel.querySelector(".settings-tab.active")?.focus();
   });
 
-  // Closing returns focus to the trigger so typing continues from where it was,
-  // but that button never paints a focus ring of its own.
+  // Closing lands focus on the grid selection: the search picked a day, and
+  // Enter should open that day's editor, not re-fire the search button.
   function closeSearch() {
     searchOpen = false;
-    searchButton?.focus();
+    focusSelectedCell();
   }
 
   /** The one selection state shared by search results and dates opened from the grid. */
@@ -896,6 +923,9 @@
     const next = new Date(y, m - 1, d + days);
     const nextKey = keyOf(next.getFullYear(), next.getMonth(), next.getDate());
     selectDate(nextKey);
+    // DOM focus must follow the amber frame, otherwise Enter would still act
+    // on the day the pointer originally clicked instead of the walked-to one.
+    focusSelectedCell();
 
     // Follow the selection so the highlighted cell stays on screen. In the
     // floating frame the window is anchored to the view month (today's day
@@ -1001,6 +1031,7 @@
   function closeEditor() {
     editingKey = null;
     draft = "";
+    focusSelectedCell();
   }
 
   // Typing has to be possible the moment the editor appears, so the field is
@@ -1172,10 +1203,25 @@
       return;
     }
 
+    // Enter or Space on a focused cell opens that day's editor. Buttons get
+    // this from browser click synthesis, but handling it here keeps the path
+    // explicit and lets the same keys work wherever the day is focused. The
+    // modifier guard keeps Ctrl+Enter/Ctrl+Space out of it (the editor itself
+    // reads plain Enter as insert-a-line, so bare modifiers only here).
+    if ((event.key === "Enter" || event.key === " ") && !event.ctrlKey && !event.metaKey && !event.altKey && !editingKey && !exportOpen && !importOpen && !settingsOpen && !searchOpen && !monthPickerOpen && !menuOpen) {
+      const cellEl = document.activeElement?.closest?.(".cell");
+      if (cellEl) {
+        event.preventDefault();
+        // openEditor only reads cell.key, and the DOM cell already carries it.
+        openEditor({ key: cellEl.dataset.key });
+        return;
+      }
+    }
+
     if (event.key === "Escape") {
       // The editor and the export dialog are modal, so they take Escape first.
       if (editingKey) closeEditor();
-      else if (exportOpen) exportOpen = false;
+      else if (exportOpen) closeExport();
       else if (importOpen) closeImport();
       else if (settingsOpen) closeSettings();
       else if (monthPickerOpen) closeMonthPicker();
@@ -1412,7 +1458,7 @@
       // drop the click either — a browser tab still downloads the file.
       if (!bridgeAvailable) {
         anchorDownload(blob, exportFileName(exportType));
-        exportOpen = false;
+        closeExport();
         flash(text.exported(rows.length));
         return;
       }
@@ -1434,7 +1480,7 @@
         return;
       }
 
-      exportOpen = false;
+      closeExport();
       // The reply names the file that was actually written, which is not always
       // the one asked for: a taken name gains " (2)" rather than replacing it.
       const written = result.value?.path || exportPath;
@@ -1461,6 +1507,7 @@
     importRows = [];
     importSkipped = 0;
     importError = "";
+    focusSelectedCell();
   }
 
   /** Reads the first sheet into [dateKey, content] pairs, dropping rows whose
@@ -1802,6 +1849,7 @@
         <button
           type="button"
           class="cell"
+          data-key={cell.key}
           class:outside={!cell.inMonth}
           class:weekend={showWeekend && cell.weekend}
           class:today={showToday && cell.key === todayKey}
@@ -2052,7 +2100,7 @@
             {text.nothingInRange}
           {/if}
         </span>
-        <button type="button" class="ghost" onclick={() => (exportOpen = false)}>{text.cancel}</button>
+        <button type="button" class="ghost" onclick={closeExport}>{text.cancel}</button>
         <button type="button" class="primary" disabled={!exportRows.length} onclick={runExport}>
           {text.export}
         </button>
