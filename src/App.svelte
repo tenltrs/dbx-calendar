@@ -3681,7 +3681,7 @@
     border-color: var(--select);
     background: color-mix(in srgb, var(--select) 7%, transparent);
   }
-  .style-choice:has(.style-radio:focus) {
+  .style-choice:has(.style-radio:focus-visible) {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
