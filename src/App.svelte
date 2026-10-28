@@ -40,10 +40,11 @@
       prev: "Previous month",
       next: "Next month",
       today: "Today",
-      chooseMonth: "Choose month",
+      chooseMonth: "Choose date",
       previousYear: "Previous year",
       nextYear: "Next year",
       yearLabel: "Year",
+      pickDayLabel: "Pick a day",
       weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
       editorTitle: "Edit entry",
       placeholder: "Write something for this day…",
@@ -192,10 +193,11 @@
       prev: "上个月",
       next: "下个月",
       today: "今天",
-      chooseMonth: "选择年月",
+      chooseMonth: "选择日期",
       previousYear: "上一年",
       nextYear: "下一年",
       yearLabel: "年份",
+      pickDayLabel: "选择日期",
       weekdays: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
       editorTitle: "编辑内容",
       placeholder: "写点什么…",
@@ -373,6 +375,8 @@
 
   let monthPickerOpen = $state(false);
   let monthPickerYear = $state(String(now.getFullYear()));
+  let monthPickerMonth = $state(now.getMonth());
+  let monthPickerDay = $state(now.getDate());
   let monthPickerEl = $state(null);
   let monthPickerPanel = $state(null);
   let monthPickerTrigger = $state(null);
@@ -465,8 +469,11 @@
   }
 
   /** Applies a saved record to the state variables. Unknown or malformed keys
-   *  keep the current value, so an old cache can never break the panel. */
-  function applySettings(saved) {
+   *  keep the current value, so an old cache can never break the panel.
+   *  `options.float` re-grounds the floating strip — only safe once the
+   *  `floatStart` state below has been declared (the top-level cache
+   *  application at module init runs before it, so it opts out). */
+  function applySettings(saved, options = {}) {
     if (!saved || typeof saved !== "object") return;
     if (saved.style !== undefined) calendarStyle = SETTINGS_FIELDS.style(saved.style) ?? calendarStyle;
     if (saved.pastWeeks !== undefined) pastWeeks = SETTINGS_FIELDS.pastWeeks(saved.pastWeeks) ?? pastWeeks;
@@ -477,6 +484,9 @@
     if (saved.holidayBadges !== undefined) showHolidayBadges = SETTINGS_FIELDS.holidayBadges(saved.holidayBadges) ?? showHolidayBadges;
     if (saved.lunar !== undefined) showLunar = SETTINGS_FIELDS.lunar(saved.lunar) ?? showLunar;
     if (saved.terms !== undefined) showTerms = SETTINGS_FIELDS.terms(saved.terms) ?? showTerms;
+    // Style/weeks-shaped settings arrived from storage, not from the pane's
+    // own controls: re-ground the floating strip either way.
+    if (options.float) floatStart = null;
     if (saved.appearance && typeof saved.appearance === "object") {
       for (const [key, validate] of Object.entries(APPEARANCE_FIELDS)) {
         if (saved.appearance[key] !== undefined) {
@@ -536,7 +546,7 @@
   async function loadPersistedSettings() {
     const reply = await readSettingsStorage();
     if (reply.ok && reply.persisted && Object.keys(reply.settings).length > 0) {
-      applySettings(reply.settings);
+      applySettings(reply.settings, { float: true });
       writeLocalSettings(reply.settings);
     }
     sidecarChecked = true;
@@ -588,6 +598,19 @@
       year: "numeric",
       month: "long",
     }).format(new Date(viewYear, viewMonth, 1)),
+  );
+
+  /** The date the top-left trigger names: the amber selection, else today.
+   *  One source of truth, so the picker, the Today button and the grid all
+   *  agree on what the title says. */
+  const titleDate = $derived(selectedDate ?? todayKey);
+
+  const titleText = $derived(
+    new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }).format(new Date(titleDate)),
   );
 
   /** Short month names for the picker grid, localized with the rest of the UI. */
@@ -643,7 +666,7 @@
 
   /** Six-column week rows starting on Monday, padded with the neighbouring months' days. */
   function buildWeeks(year, month) {
-    return calendarStyle === "float" ? buildFloatingWeeks(year, month) : buildMonthWeeks(year, month);
+    return calendarStyle === "float" ? buildFloatingWeeks() : buildMonthWeeks(year, month);
   }
 
   function buildMonthWeeks(year, month) {
@@ -664,20 +687,51 @@
     );
   }
 
-  /** Week rows in the floating frame: the anchor day keeps the same row every
-   *  month, so the weeks above and below it are the dates a reader actually
-   *  plans with. The anchor is today's day of month, clamped for short months,
-   *  which keeps the current month identical to "today is on this row".
-   *
-   *  Every cell is in range here: the window deliberately runs past the month
-   *  boundaries, so dimming the neighbours would grey out most of the grid. */
-  function buildFloatingWeeks(year, month) {
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const anchorDay = Math.min(now.getDate(), lastDay);
-    const anchor = new Date(year, month, anchorDay);
-    const lead = (anchor.getDay() + 6) % 7;
-    const start = new Date(year, month, anchorDay - lead - pastWeeks * 7);
+  /** Week rows in the floating frame: a continuous timeline cut into fixed
+   *  five-week pages. Page boundaries are independent of month boundaries —
+   *  the day after a page's last cell opens the next page — so paging back
+   *  and forth walks one unbroken strip of dates: no day repeats across
+   *  pages, none is skipped. floatStart is the first day (always a Monday)
+   *  of the page on screen; null means "derive the home page of the view
+   *  month", which is also where style and "weeks above" changes re-ground
+   *  the strip. */
+  let floatStart = $state(null);
 
+  /** Shifts a date by whole days via the date constructor (DST-safe). */
+  function addDays(date, days) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+  }
+
+  /** Monday of the week containing the date — the strip's page grid. */
+  function mondayOf(date) {
+    return addDays(date, -((date.getDay() + 6) % 7));
+  }
+
+  /** Home page: today's week row with `pastWeeks` already-gone weeks above
+   *  it. Anchoring on today instead of the month's 1st keeps "today" on
+   *  screen whatever month the page happens to run across — the old
+   *  first-of-month anchor dropped today off the home page whenever the
+   *  first fell early in its week. */
+  function floatHomeStart() {
+    return addDays(mondayOf(now), -pastWeeks * 7);
+  }
+
+  /** The strip page that contains the given date. Pages are counted in
+   *  five-week blocks from the current strip origin, so the result always
+   *  neighbours the page on screen exactly — the day after one page's last
+   *  cell is the next page's first cell, whichever page either is. */
+  function floatPageContaining(date) {
+    const origin = floatStart ?? floatHomeStart();
+    const weekDelta = Math.round((mondayOf(date) - origin) / 86400000 / 7);
+    return addDays(origin, Math.floor(weekDelta / FLOAT_ROWS) * FLOAT_ROWS * 7);
+  }
+
+  function buildFloatingWeeks() {
+    return floatingRows(floatStart ?? floatHomeStart());
+  }
+
+  /** Builds the five row cells from a window start date. */
+  function floatingRows(start) {
     return Array.from({ length: FLOAT_ROWS }, (_, row) =>
       Array.from({ length: 7 }, (_, col) => {
         const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + row * 7 + col);
@@ -697,16 +751,46 @@
     );
   }
 
+  /** Flat set of the date keys on the current grid page — "is this day
+   *  on screen" without walking rows. */
+  function windowKeys() {
+    const keys = new Set();
+    for (const row of weeks) for (const cell of row) keys.add(cell.key);
+    return keys;
+  }
+
+  function gridContains(key) {
+    return windowKeys().has(key);
+  }
+
+  /** Prev/next page. The full-month frame steps one calendar month; the
+   *  floating frame slides its page start by exactly five weeks from the
+   *  page on screen, so the next page opens on the day after the previous
+   *  page's last cell — dates never repeat or skip across pages. */
   function step(delta) {
-    const next = new Date(viewYear, viewMonth + delta, 1);
-    viewYear = next.getFullYear();
-    viewMonth = next.getMonth();
+    if (calendarStyle === "float") {
+      const nextStart = addDays(floatStart ?? floatHomeStart(), delta * FLOAT_ROWS * 7);
+      floatStart = nextStart;
+      viewYear = nextStart.getFullYear();
+      viewMonth = nextStart.getMonth();
+    } else {
+      const next = new Date(viewYear, viewMonth + delta, 1);
+      viewYear = next.getFullYear();
+      viewMonth = next.getMonth();
+    }
     focusSelectedCell();
   }
 
   function goToday() {
     viewYear = now.getFullYear();
     viewMonth = now.getMonth();
+    // The title reads the selection, so "today" must claim it too — otherwise
+    // the trigger would keep naming a day the grid no longer shows.
+    selectDate(todayKey);
+    if (calendarStyle === "float") {
+      // The home page is anchored on today's week, so it always shows today.
+      floatStart = floatHomeStart();
+    }
     focusSelectedCell();
   }
 
@@ -731,10 +815,12 @@
 
   function openMonthPicker() {
     menuOpen = false;
-    // The year field starts from the grid so the steppers continue from where
-    // the user is; the highlighted month is always the grid's own year+month,
-    // so stepping the year to another one leaves nothing highlighted.
-    monthPickerYear = String(viewYear);
+    // The year/month fields start from the title date (selection, else today)
+    // so the day grid opens on the month the user is already looking at.
+    const [y, m, d] = titleDate.split("-").map(Number);
+    monthPickerYear = String(y);
+    monthPickerMonth = m - 1;
+    monthPickerDay = d;
     monthPickerOpen = true;
   }
 
@@ -765,7 +851,7 @@
   function normalizePickerYear() {
     // A partial year (e.g. "20" on the way to 2020) falls back rather than
     // silently sending the calendar to 1900 when focus leaves the field.
-    monthPickerYear = String(pickerYearValue() ?? viewYear);
+    monthPickerYear = String(pickerYearValue() ?? Number(monthPickerYear));
   }
 
   /** Keeps the year field to four digits while it is being typed. */
@@ -776,27 +862,71 @@
   }
 
   function chooseMonth(month) {
+    // Picking a month only re-aims the day grid: the calendar view moves when
+    // a day is chosen, so stepping through years never yanks the grid away.
     normalizePickerYear();
     const year = Number(monthPickerYear);
     if (year < 1900 || year > 2200) return;
-    viewYear = year;
-    viewMonth = month;
+    monthPickerYear = String(year);
+    monthPickerMonth = month;
+    // The pending day may not exist in the new month (Jan 31 → Feb); clamp it.
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    monthPickerDay = Math.min(monthPickerDay, lastDay);
+  }
+
+  /** Confirms the pending year+month+day: the view moves there and the day
+   *  takes the amber selection, which is what the title then reads. The
+   *  picker grid pads its rows with the neighbouring months, so the full
+   *  date travels with the button — rebuilding it from the pending month
+   *  would land a clicked "Nov 1" on the wrong year and push the view a
+   *  month past the day that actually got selected. */
+  function chooseDay(date) {
+    normalizePickerYear();
+    const year = Number(monthPickerYear);
+    if (year < 1900 || year > 2200) return;
+    const key = keyOf(date.getFullYear(), date.getMonth(), date.getDate());
+    viewYear = date.getFullYear();
+    viewMonth = date.getMonth();
+    if (calendarStyle === "float") floatStart = floatPageContaining(date);
+    selectDate(key);
     closeMonthPicker({ restoreFocus: false });
     focusSelectedCell();
   }
 
-  /** True for the one month the grid is actually showing, and only while the
-   *  year field still names that year. Stepping to another year clears it:
-   *  the pill marks a year+month pair, not a month index that rides along. */
+  /** True for the month the day grid is showing. */
   function isChosenMonth(index) {
-    return index === viewMonth && pickerYearValue() === viewYear;
+    return index === monthPickerMonth && pickerYearValue() === Number(monthPickerYear);
   }
 
-  // Opening the panel puts focus on the pending month so it can be confirmed
+  /** The day grid under the pending year+month: Monday-first rows padded with
+   *  the neighbouring months' days, same shape as the main grid. */
+  const pickerDays = $derived.by(() => {
+    const year = Number(monthPickerYear);
+    const month = monthPickerMonth;
+    if (!Number.isInteger(year) || year < 1900 || year > 2200) return [];
+    const first = new Date(year, month, 1);
+    const lead = (first.getDay() + 6) % 7;
+    const rows = Math.ceil((lead + new Date(year, month + 1, 0).getDate()) / 7);
+    return Array.from({ length: rows }, (_, row) =>
+      Array.from({ length: 7 }, (_, col) => {
+        const date = new Date(year, month, 1 - lead + row * 7 + col);
+        const key = keyOf(date.getFullYear(), date.getMonth(), date.getDate());
+        return {
+          key,
+          day: date.getDate(),
+          inMonth: date.getMonth() === month,
+          weekend: col >= 5,
+        };
+      }),
+    );
+  });
+
+  // Opening the panel puts focus on the pending day so it can be confirmed
   // with Enter and walked with Tab, rather than leaving focus on the trigger.
   $effect(() => {
     if (!monthPickerOpen || !monthPickerPanel) return;
-    monthPickerPanel.querySelector(".picker-month.active")?.focus();
+    monthPickerPanel.querySelector(".picker-day.picked")?.focus()
+      ?? monthPickerPanel.querySelector(".picker-day.today")?.focus();
   });
 
   function openSearch() {
@@ -902,7 +1032,12 @@
     focusSelectedCell();
   }
 
-  /** The one selection state shared by search results and dates opened from the grid. */
+  /**
+   * The one selection state shared by the grid, search results, the title
+   * date and the picker. Null means "no choice yet"; the title falls back to
+   * today until something — a click, a search hit, a picker choice — names a
+   * specific day.
+   */
   function selectDate(date) {
     selectedDate = date;
   }
@@ -933,14 +1068,10 @@
     // window away from the walked-to date; there the view shifts month by
     // month in the walk direction until the grid actually contains it.
     if (calendarStyle === "float") {
-      const dir = Math.sign(days);
-      for (let guard = 0; guard < 4; guard += 1) {
-        const window = buildFloatingWeeks(viewYear, viewMonth);
-        if (window.some((row) => row.some((cell) => cell.key === nextKey))) break;
-        const shifted = new Date(viewYear, viewMonth + dir, 1);
-        viewYear = shifted.getFullYear();
-        viewMonth = shifted.getMonth();
-      }
+      // The walked-to date should be on screen: if the page in view doesn't
+      // hold it, slide the strip so the page containing it takes over — the
+      // page order itself never changes, so no date repeats or skips.
+      if (!windowKeys().has(nextKey)) floatStart = floatPageContaining(next);
     } else if (next.getMonth() !== viewMonth || next.getFullYear() !== viewYear) {
       viewYear = next.getFullYear();
       viewMonth = next.getMonth();
@@ -952,6 +1083,7 @@
     const [year, month] = date.split("-").map(Number);
     viewYear = year;
     viewMonth = month - 1;
+    if (calendarStyle === "float") floatStart = floatPageContaining(new Date(date.replace(/-/g, "/")));
     selectDate(date);
     closeSearch();
   }
@@ -1652,10 +1784,10 @@
           aria-haspopup="dialog"
           aria-expanded={monthPickerOpen}
           aria-controls="month-picker"
-          aria-label={`${monthTitle}, ${text.chooseMonth}`}
+          aria-label={`${titleText}, ${text.chooseMonth}`}
           onclick={toggleMonthPicker}
         >
-          <span>{monthTitle}</span>
+          <span>{titleText}</span>
           <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <path
               d="m4 6 4 4 4-4"
@@ -1750,7 +1882,7 @@
 
     {#if monthPickerOpen}
       <div
-        class="month-picker"
+        class="month-picker picker-for-date"
         id="month-picker"
         role="dialog"
         aria-label={text.chooseMonth}
@@ -1824,6 +1956,27 @@
               onclick={() => chooseMonth(index)}
             >
               {name}
+            </button>
+          {/each}
+        </div>
+
+        <div class="picker-days" role="group" aria-label={text.pickDayLabel}>
+          {#each text.weekdays as label (label)}
+            <span class="picker-weekday" aria-hidden="true">{label}</span>
+          {/each}
+          {#each pickerDays.flat() as cell (cell.key)}
+            <button
+              type="button"
+              class="picker-day"
+              class:outside={!cell.inMonth}
+              class:weekend={cell.weekend}
+              class:today={cell.key === todayKey}
+              class:picked={cell.key === selectedDate}
+              aria-pressed={cell.key === selectedDate}
+              onclick={() => chooseDay(new Date(cell.key.replace(/-/g, "/")))}
+              data-key={cell.key}
+            >
+              {cell.day}
             </button>
           {/each}
         </div>
@@ -2223,7 +2376,18 @@
                         value="full"
                         class="style-radio"
                         checked={calendarStyle === "full"}
-                        onchange={() => (calendarStyle = "full")}
+                        onchange={() => {
+                          calendarStyle = "full";
+                          floatStart = null;
+                          // The floating strip may have drifted months away
+                          // from the view month; the full-month grid shows one
+                          // calendar month, so open it on the selected day's
+                          // month (today when nothing is selected).
+                          const anchor = selectedDate ?? todayKey;
+                          const [anchorYear, anchorMonth] = anchor.split("-").map(Number);
+                          viewYear = anchorYear;
+                          viewMonth = anchorMonth - 1;
+                        }}
                       />
                       <span class="style-preview" aria-hidden="true">
                         {#each Array(28) as _, index (index)}
@@ -2240,7 +2404,10 @@
                         value="float"
                         class="style-radio"
                         checked={calendarStyle === "float"}
-                        onchange={() => (calendarStyle = "float")}
+                        onchange={() => {
+                          calendarStyle = "float";
+                          floatStart = null;
+                        }}
                       />
                       <span class="style-preview" aria-hidden="true">
                         {#each Array(28) as _, index (index)}
@@ -2262,7 +2429,10 @@
                         class="setting-select"
                         aria-label={text.pastWeeks}
                         value={String(pastWeeks)}
-                        onchange={(event) => (pastWeeks = Number(event.currentTarget.value))}
+                        onchange={(event) => {
+                          pastWeeks = Number(event.currentTarget.value);
+                          floatStart = null;
+                        }}
                       >
                         {#each [0, 1, 2, 3] as count (count)}
                           <option value={String(count)}>{text.pastWeeksValue(count)}</option>
@@ -2654,6 +2824,61 @@
   }
   .picker-month:focus-visible,
   .picker-step:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  /* The day grid turns the month index into a date picker: seven columns on
+     the same Monday-first shape as the calendar, weekdays as quiet labels. */
+  .picker-for-date {
+    width: min(320px, calc(100vw - 32px));
+  }
+  .picker-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 2px;
+    padding-top: 10px;
+  }
+  .picker-weekday {
+    color: var(--muted);
+    font-size: 10.5px;
+    text-align: center;
+    padding-bottom: 2px;
+  }
+  .picker-day {
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+  .picker-day:hover {
+    background: var(--tint);
+  }
+  .picker-day.weekend {
+    color: var(--muted);
+  }
+  .picker-day.outside {
+    color: color-mix(in srgb, CanvasText 30%, transparent);
+  }
+  .picker-day.today {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .picker-day.picked {
+    color: Canvas;
+    background: var(--select);
+    font-weight: 600;
+  }
+  .picker-day.picked:hover {
+    background: var(--select);
+  }
+  .picker-day:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }

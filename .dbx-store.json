@@ -7,5 +7,5 @@
   "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.2.0",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
-  "releaseNotes": "The settings sheet gains a fonts-and-colours pane: pick the calendar typeface (falling back to the host's font token), scale all calendar text by percentage, and zoom the whole interface including every dialog. Six colours — note text, calendar background, today and selection borders, festival and solar-term text — are individually tunable, each resettable to the theme default."
+  "releaseNotes": "The floating month style is rebuilt as one continuous five-week strip: paging walks on from the previous page with no repeated or skipped days, the weeks-above setting keeps that many rows before the week containing today, and jumping or arrowing to a date simply turns the strip to the page holding it. The month title now doubles as a date picker — pick a year, a month and a day to jump straight there."
 }

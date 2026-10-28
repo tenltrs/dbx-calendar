@@ -43,7 +43,7 @@ Also available in [简体中文](README.zh-CN.md).
 
 - The toolbar menu opens a settings sheet with a rail on the left: calendar, fonts and colours, and about
 - The calendar pane is grouped into style, cell style, display, festivals, and lunar calendar:
-  - Style picks a "full month" (always starting on the 1st) or a "floating month" (the anchor day keeps its week row, with "weeks above" rows kept over it and no month alignment; the 1st of a month shows the month's name, and a lunar month's first day reads 农历X月)
+  - Style picks a "full month" (always starting on the 1st) or a "floating month" (each page is a fixed five-week strip: paging continues from the previous page with no repeated or skipped days; "weeks above" keeps that many rows before the week containing today; the 1st of a month shows the month's name, and a lunar month's first day reads 农历X月)
   - Cell style prefixes each note line with nothing, a running number, or a bullet dot; the editor continues the prefix on `Enter`. Prefixes are display-only — the note itself is saved without them
   - Display can turn off the weekend tint and today marker; festivals can hide festival names and off/work badges; the lunar group can hide lunar dates and solar terms (a hidden layer falls through to the next)
 - The fonts-and-colours pane tunes the calendar appearance:
