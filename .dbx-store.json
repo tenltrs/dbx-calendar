@@ -7,5 +7,5 @@
   "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.2.0",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
-  "releaseNotes": "Settings now persist through the sidecar in the plugin data directory, so calendar and cell preferences survive reinstalls and upgrades. The cells pane folds into the calendar pane as a cell-style group, adding per-line numbering or bullet prefixes that render in the grid and continue in the editor while the saved note stays untouched."
+  "releaseNotes": "The settings sheet gains a fonts-and-colours pane: pick the calendar typeface (falling back to the host's font token), scale all calendar text by percentage, and zoom the whole interface including every dialog. Six colours — note text, calendar background, today and selection borders, festival and solar-term text — are individually tunable, each resettable to the theme default."
 }

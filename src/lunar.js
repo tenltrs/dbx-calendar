@@ -168,10 +168,19 @@ export function dayInfo(dateKey, lang = "zh", layers = {}) {
   const term = terms.get(dateKey);
 
   let text = "";
-  if (showFestivals && festival) text = en ? (EN_FESTIVALS[festival] ?? festival) : festival;
-  else if (showFestivals && holiday) text = en ? (EN_HOLIDAYS[holiday] ?? holiday) : holiday;
-  else if (showTerms && term) text = en ? (EN_TERMS[term] ?? term) : term;
-  else if (showLunar) {
+  /** What the text names, so the cell can colour festival and term days
+   *  apart: "festival" (lunar), "holiday" (statutory), "term", "lunar". */
+  let kind = null;
+  if (showFestivals && festival) {
+    text = en ? (EN_FESTIVALS[festival] ?? festival) : festival;
+    kind = "festival";
+  } else if (showFestivals && holiday) {
+    text = en ? (EN_HOLIDAYS[holiday] ?? holiday) : holiday;
+    kind = "holiday";
+  } else if (showTerms && term) {
+    text = en ? (EN_TERMS[term] ?? term) : term;
+    kind = "term";
+  } else if (showLunar) {
     const { lunarDay, lunarDayCN, lunarMon, lunarMonCN, isLeap } = getLunarDate(dateKey);
     if (en) {
       text = lunarDay === 1
@@ -190,5 +199,5 @@ export function dayInfo(dateKey, lang = "zh", layers = {}) {
     }
   }
 
-  return { text, status: schedule ? (schedule.off ? "off" : "work") : null };
+  return { text, kind, status: schedule ? (schedule.off ? "off" : "work") : null };
 }

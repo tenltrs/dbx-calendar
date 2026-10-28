@@ -21,13 +21,14 @@
   import exportIcon from "../assets/export.svg";
   import importIcon from "../assets/import.svg";
   import calendarIcon from "../assets/calendar.svg";
+  import paletteIcon from "../assets/palette.svg";
   import infoIcon from "../assets/info.svg";
   // The About pane names a version, and the manifest is the only place it is
   // actually declared; reading it here keeps the two from drifting apart.
   import manifest from "../manifest.json";
   import { dayInfo } from "./lunar.js";
   import { highlightMatches, navigateSearchResults, searchNotes } from "./search.js";
-  import { invoke, whenReady, hostLocale, bridgeAvailable, readSettingsStorage, writeSettingsStorage } from "./dbx.js";
+  import { invoke, whenReady, hostLocale, hostTheme, onHostEnv, bridgeAvailable, readSettingsStorage, writeSettingsStorage } from "./dbx.js";
 
   /** Vite inlines small SVGs as data URIs whose payload contains single quotes,
    *  and an unquoted CSS url() rejects quote characters outright. Quoting here
@@ -69,6 +70,7 @@
       settings: "Settings",
       settingsClose: "Close settings",
       tabGrid: "Calendar",
+      tabAppearance: "Fonts & colors",
       tabAbout: "About",
       groupStyle: "Calendar style",
       groupCellStyle: "Cell style",
@@ -98,6 +100,34 @@
       showLunarHint: "The lunar day under the Gregorian number.",
       showTerms: "Solar terms",
       showTermsHint: "On a term day, show the term instead of the lunar date.",
+      groupFont: "Text",
+      groupColors: "Colors",
+      fontLabel: "Font",
+      fontHint: "Typeface for the whole calendar, following the host's font setting when unset.",
+      fontDefault: "Default",
+      fontSerif: "Serif",
+      fontKai: "Kai (Kaiti)",
+      fontMono: "Monospace",
+      fontRound: "Rounded (YaHei UI)",
+      sizeLabel: "Text size",
+      sizeHint: "Scales the whole calendar — dates, lunar text, weekdays, badges and notes.",
+      sizeDefault: "Default (100%)",
+      sizePercent: (scale) => `${Math.round(Number(scale) * 100)}%`,
+      zoomLabel: "Interface zoom",
+      zoomHint: "Scales the whole panel — toolbar, month title, buttons and grid together.",
+      noteColorLabel: "Note text",
+      noteColorHint: "Colour of the note lines in each cell.",
+      calendarBackgroundLabel: "Calendar background",
+      calendarBackgroundHint: "Fill behind the whole month grid.",
+      todayBorderLabel: "Today ring",
+      todayBorderHint: "The frame drawn around today's cell.",
+      selectedBorderLabel: "Selected ring",
+      selectedBorderHint: "The frame a clicked or searched date carries.",
+      festivalColorLabel: "Festival text",
+      festivalColorHint: "Lunar festivals and statutory holiday names.",
+      termColorLabel: "Solar term text",
+      termColorHint: "The 24 solar-term names on their days.",
+      resetAppearance: "Reset to theme defaults",
       aboutName: "Calendar Notes",
       aboutTagline: "A month view for keeping notes, day by day.",
       aboutIntro:
@@ -192,6 +222,7 @@
       settings: "设置",
       settingsClose: "关闭设置",
       tabGrid: "日历",
+      tabAppearance: "字体和颜色",
       tabAbout: "关于我们",
       groupStyle: "日历样式",
       groupCellStyle: "单元格样式",
@@ -221,6 +252,34 @@
       showLunarHint: "公历日下方显示农历。",
       showTerms: "二十四节气",
       showTermsHint: "节气当天用它替代农历日期。",
+      groupFont: "文字",
+      groupColors: "颜色",
+      fontLabel: "字体",
+      fontHint: "整个日历的字体，未设置时跟随宿主的字体设置。",
+      fontDefault: "默认",
+      fontSerif: "衬线",
+      fontKai: "楷体",
+      fontMono: "等宽",
+      fontRound: "圆体",
+      sizeLabel: "字号",
+      sizeHint: "整体缩放日历文字：日期、农历、星期、标记与笔记一并放大缩小。",
+      sizeDefault: "标准 (100%)",
+      sizePercent: (scale) => `${Math.round(Number(scale) * 100)}%`,
+      zoomLabel: "界面缩放",
+      zoomHint: "整体缩放整个面板：标题、按钮与日历网格一起放大缩小。",
+      noteColorLabel: "笔记文字",
+      noteColorHint: "格子里笔记内容的颜色。",
+      calendarBackgroundLabel: "日历背景色",
+      calendarBackgroundHint: "整个月历网格的底色。",
+      todayBorderLabel: "今日边框色",
+      todayBorderHint: "今天格子周围的描边。",
+      selectedBorderLabel: "选中边框色",
+      selectedBorderHint: "点选或搜索命中的日期描边。",
+      festivalColorLabel: "节假日文字颜色",
+      festivalColorHint: "农历节日与法定节日名称的颜色。",
+      termColorLabel: "节气文字颜色",
+      termColorHint: "二十四节气名称的颜色。",
+      resetAppearance: "恢复主题默认",
       aboutName: "日历笔记",
       aboutTagline: "在月视图上，按天记录笔记。",
       aboutIntro:
@@ -294,6 +353,20 @@
   );
   let text = $derived(copy[lang]);
 
+  /**
+   * The host's UI font, read from the theme tokens the bridge pushes
+   * (`--font-sans`). The grid's --cal-font default is this value rather than a
+   * hard-coded stack, so the host's font setting — KaiTi, say — reaches the
+   * calendar; a font picked in the appearance pane overrides it via
+   * appearance.fontFamily. Null outside a host, where the page falls back to
+   * its own stack.
+   */
+  let hostFont = $state(hostTheme()?.tokens?.["--font-sans"] ?? null);
+  onHostEnv((event) => {
+    const tokens = event?.detail?.theme?.tokens ?? event?.theme?.tokens;
+    if (tokens && typeof tokens["--font-sans"] === "string") hostFont = tokens["--font-sans"];
+  });
+
   const now = new Date();
   let viewYear = $state(now.getFullYear());
   let viewMonth = $state(now.getMonth());
@@ -336,6 +409,20 @@
   let showHolidayBadges = $state(true);
   let showLunar = $state(true);
   let showTerms = $state(true);
+  /** Appearance overrides for the 字体和颜色 pane. Each is an empty string
+   *  while unset, meaning "follow the theme"; a picked value replaces the CSS
+   *  variable of the same name on the grid. */
+  let appearance = $state({
+    fontFamily: "",
+    fontSize: "",
+    uiZoom: "",
+    noteColor: "",
+    calendarBackground: "",
+    todayBorder: "",
+    selectedBorder: "",
+    festivalColor: "",
+    termColor: "",
+  });
   /** Set once the saved preferences have been read, so the first save does not
    *  overwrite them before they are applied. */
   let settingsLoaded = $state(false);
@@ -357,6 +444,26 @@
     terms: (value) => (typeof value === "boolean" ? value : null),
   };
 
+  /** Shape each appearance field accepts. A font is a short family list, a
+   *  size a CSS length, a colour a #hex string; anything else is dropped, so
+   *  a hand-edited settings file cannot inject CSS. */
+  const APPEARANCE_FIELDS = {
+    fontFamily: (value) => (typeof value === "string" && value.length <= 120 && !/[<>{};\\]/.test(value) ? value : null),
+    fontSize: (value) => (typeof value === "string" && /^(\d?\.?\d+|)$/.test(value) && (value === "" || (Number(value) >= 0.5 && Number(value) <= 3)) ? value : null),
+    uiZoom: (value) => (typeof value === "string" && /^(\d?\.?\d+|)$/.test(value) && (value === "" || (Number(value) >= 0.5 && Number(value) <= 2)) ? value : null),
+    noteColor: (value) => validColor(value),
+    calendarBackground: (value) => validColor(value),
+    todayBorder: (value) => validColor(value),
+    selectedBorder: (value) => validColor(value),
+    festivalColor: (value) => validColor(value),
+    termColor: (value) => validColor(value),
+  };
+
+  /** Accepts #rgb / #rrggbb, or "" meaning "follow the theme". */
+  function validColor(value) {
+    return typeof value === "string" && /^$|^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(value) ? value.toLowerCase() : null;
+  }
+
   /** Applies a saved record to the state variables. Unknown or malformed keys
    *  keep the current value, so an old cache can never break the panel. */
   function applySettings(saved) {
@@ -370,6 +477,13 @@
     if (saved.holidayBadges !== undefined) showHolidayBadges = SETTINGS_FIELDS.holidayBadges(saved.holidayBadges) ?? showHolidayBadges;
     if (saved.lunar !== undefined) showLunar = SETTINGS_FIELDS.lunar(saved.lunar) ?? showLunar;
     if (saved.terms !== undefined) showTerms = SETTINGS_FIELDS.terms(saved.terms) ?? showTerms;
+    if (saved.appearance && typeof saved.appearance === "object") {
+      for (const [key, validate] of Object.entries(APPEARANCE_FIELDS)) {
+        if (saved.appearance[key] !== undefined) {
+          appearance[key] = validate(saved.appearance[key]) ?? appearance[key];
+        }
+      }
+    }
   }
 
   /** Preferences are a convenience, not data: when the host webview hides
@@ -394,6 +508,7 @@
       holidayBadges: showHolidayBadges,
       lunar: showLunar,
       terms: showTerms,
+      appearance: { ...appearance },
     };
   }
 
@@ -486,6 +601,29 @@
 
   const weeks = $derived.by(() => buildWeeks(viewYear, viewMonth));
   const searchResults = $derived(searchNotes(notes, searchQuery));
+
+  /** The style string the grid carries. Only the fields the user actually
+   *  picked are emitted — an empty value means the theme's own variable stays
+   *  in force, so the calendar keeps following the host's light/dark Canvas.
+   *  The font is the exception: with nothing picked, the host's `--font-sans`
+   *  token is pushed down explicitly, because the page's own body stack would
+   *  otherwise win the inheritance race and the host font would never show. */
+  const gridStyle = $derived.by(() => {
+    const parts = [];
+    if (appearance.fontFamily) {
+      parts.push(`--cal-font:${appearance.fontFamily}`);
+    } else if (hostFont) {
+      parts.push(`--cal-font:${hostFont.replace(/"/g, "'")}`);
+    }
+    if (appearance.fontSize) parts.push(`--cal-scale:${appearance.fontSize}`);
+    if (appearance.noteColor) parts.push(`--cal-note:${appearance.noteColor}`);
+    if (appearance.calendarBackground) parts.push(`--cal-canvas:${appearance.calendarBackground}`);
+    if (appearance.todayBorder) parts.push(`--cal-today:${appearance.todayBorder}`);
+    if (appearance.selectedBorder) parts.push(`--cal-selected:${appearance.selectedBorder}`);
+    if (appearance.festivalColor) parts.push(`--cal-festival:${appearance.festivalColor}`);
+    if (appearance.termColor) parts.push(`--cal-term:${appearance.termColor}`);
+    return parts.join(";");
+  });
 
   /** Lunar date, solar term and holiday marker for the visible grid, resolved once per month. */
   const dayInfos = $derived.by(() => {
@@ -652,7 +790,44 @@
    *  the rail and anything else that has to name a pane. */
   const settingsTabs = $derived([
     { id: "grid", label: text.tabGrid, icon: calendarIcon },
+    { id: "appearance", label: text.tabAppearance, icon: paletteIcon },
     { id: "about", label: text.tabAbout, icon: infoIcon },
+  ]);
+
+  /** Font choices for the appearance pane. "" means the theme's own stack;
+   *  the others are stacks every Windows host ships, so nothing to download. */
+  const FONT_OPTIONS = $derived([
+    { value: "", label: text.fontDefault },
+    { value: '"Microsoft YaHei", "PingFang SC", sans-serif', label: text.fontRound },
+    { value: 'Georgia, "Times New Roman", "Songti SC", SimSun, serif', label: text.fontSerif },
+    { value: '"KaiTi", "STKaiti", "Kaiti SC", serif', label: text.fontKai },
+    { value: 'Consolas, "Cascadia Mono", "Courier New", monospace', label: text.fontMono },
+  ]);
+
+  /** Zoom levels for every piece of calendar text, in the style of the
+   *  host's own accessibility zoom: a multiplier over the theme size rather
+   *  than hard-coded pixels, so dates, lunar rows, weekdays, badges and notes
+   *  all grow together and the defaults stay untouched when unset. */
+  const SIZE_OPTIONS = ["", "0.85", "1", "1.15", "1.25", "1.5", "1.75", "2"];
+
+  /** Interface zoom levels. Unlike the text size above, this scales the whole
+   *  panel — the toolbar, month title, nav buttons and grid together — by
+   *  driving `zoom` on <main>, so spacing and hit areas grow with the text. */
+  const UI_ZOOM_OPTIONS = ["", "0.85", "1", "1.15", "1.25", "1.5", "1.75", "2"];
+
+  /** Colour rows in display order; each maps one appearance key to the CSS
+   *  variable the grid reads. "fallback" is the literal hex the picker shows
+   *  while the key is empty — it must be a concrete colour because
+   *  <input type=color> cannot display var() or color-mix() — and it tracks
+   *  the same values the CSS defaults resolve to (the host theme may darken
+   *  them; the picker is just the starting point for a new pick). */
+  const COLOR_ROWS = $derived([
+    { key: "noteColor", label: text.noteColorLabel, hint: text.noteColorHint, varName: "--cal-note", fallback: "#c7c7c7" },
+    { key: "calendarBackground", label: text.calendarBackgroundLabel, hint: text.calendarBackgroundHint, varName: "--cal-canvas", fallback: "#ffffff" },
+    { key: "todayBorder", label: text.todayBorderLabel, hint: text.todayBorderHint, varName: "--cal-today", fallback: "#6d5dfc" },
+    { key: "selectedBorder", label: text.selectedBorderLabel, hint: text.selectedBorderHint, varName: "--cal-selected", fallback: "#e0a12e" },
+    { key: "festivalColor", label: text.festivalColorLabel, hint: text.festivalColorHint, varName: "--cal-festival", fallback: "#6d5dfc" },
+    { key: "termColor", label: text.termColorLabel, hint: text.termColorHint, varName: "--cal-term", fallback: "#e0a12e" },
   ]);
 
   /** Toggle rows are described as data so the three groups render the same
@@ -1345,6 +1520,14 @@
   $effect(() => {
     document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   });
+
+  // --ui-zoom lives on the body, not <main>: every dialog backdrop is a
+  // sibling of <main> (position:fixed, appended after it), so it never
+  // inherits a custom property scoped to <main>. The body scope reaches
+  // both the main zoom and the dialog backdrops.
+  $effect(() => {
+    document.body.style.setProperty("--ui-zoom", appearance.uiZoom || "1");
+  });
 </script>
 
 <svelte:head><title>DBX Calendar</title></svelte:head>
@@ -1354,7 +1537,13 @@
   onclick={handleWindowClick}
 />
 
-<main>
+<!-- Interface zoom rides on <main> as a plain `zoom` so the toolbar, month
+     title, nav buttons and grid all scale together, hit areas included; a
+     plain `transform` would blur text and `font-size` alone would leave the
+     chrome behind. The --ui-zoom token (set on <body> above) lets the fixed
+     dialogs scale themselves: they are siblings of <main>, appended after
+     it, so they escape its zoom scope and would otherwise stay at 100%. -->
+<main style={`zoom: ${appearance.uiZoom || "1"}`}>
   <header class="toolbar" class:keyboard-focus={keyboardFocus}>
     <div class="month-menu" bind:this={monthPickerEl}>
       <h1>
@@ -1550,7 +1739,7 @@
 
   <div
     class="grid"
-    style="grid-template-rows: auto repeat({weeks.length}, minmax(0, 1fr));"
+    style="grid-template-rows: auto repeat({weeks.length}, minmax(0, 1fr)); {gridStyle}"
   >
     {#each text.weekdays as label, index (label)}
       <div class="weekday" class:weekend={showWeekend && index >= 5}>{label}</div>
@@ -1588,7 +1777,7 @@
               <span class="date">{cell.day}</span>
             {/if}
             {#if info.text}
-              <span class="lunar">{info.text}</span>
+              <span class="lunar" class:is-festival={info.kind === "festival" || info.kind === "holiday"} class:is-term={info.kind === "term"}>{info.text}</span>
             {/if}
             {#if info.status && showHolidayBadges}
               <span class="badge" class:off={info.status === "off"}>
@@ -2049,6 +2238,65 @@
                 </section>
               {/each}
             </div>
+          {:else if settingsTab === "appearance"}
+            <div class="settings-groups appearance-pane">
+              <section class="settings-group">
+                <h3 class="group-head">{text.groupFont}</h3>
+                <div class="group-body">
+                  <div class="setting-row">
+                    <span class="setting-copy">
+                      <span class="setting-label">{text.fontLabel}</span>
+                      <span class="setting-hint">{text.fontHint}</span>
+                    </span>
+                    <select class="setting-select" aria-label={text.fontLabel} value={appearance.fontFamily} onchange={(event) => (appearance.fontFamily = event.currentTarget.value)}>
+                      {#each FONT_OPTIONS as option (option.value)}
+                        <option value={option.value}>{option.label}</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <div class="setting-row">
+                    <span class="setting-copy">
+                      <span class="setting-label">{text.sizeLabel}</span>
+                      <span class="setting-hint">{text.sizeHint}</span>
+                    </span>
+                    <select class="setting-select" aria-label={text.sizeLabel} value={appearance.fontSize} onchange={(event) => (appearance.fontSize = event.currentTarget.value)}>
+                      {#each SIZE_OPTIONS as size (size)}
+                        <option value={size}>{size === "" ? text.sizeDefault : text.sizePercent(Number(size))}</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <div class="setting-row">
+                    <span class="setting-copy">
+                      <span class="setting-label">{text.zoomLabel}</span>
+                      <span class="setting-hint">{text.zoomHint}</span>
+                    </span>
+                    <select class="setting-select" aria-label={text.zoomLabel} value={appearance.uiZoom} onchange={(event) => (appearance.uiZoom = event.currentTarget.value)}>
+                      {#each UI_ZOOM_OPTIONS as zoom (zoom)}
+                        <option value={zoom}>{zoom === "" ? text.sizeDefault : text.sizePercent(Number(zoom))}</option>
+                      {/each}
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-group">
+                <h3 class="group-head">{text.groupColors}</h3>
+                <div class="group-body">
+                  {#each COLOR_ROWS as row (row.key)}
+                    <label class="setting-row">
+                      <span class="setting-copy">
+                        <span class="setting-label">{row.label}</span>
+                        <span class="setting-hint">{row.hint}</span>
+                      </span>
+                      <span class="color-field">
+                        <input type="color" class="color-swatch" aria-label={row.label} value={appearance[row.key] || row.fallback} oninput={(event) => (appearance[row.key] = event.currentTarget.value)} />
+                        <button type="button" class="color-reset" disabled={!appearance[row.key]} onclick={() => (appearance[row.key] = "")}>{text.resetAppearance}</button>
+                      </span>
+                    </label>
+                  {/each}
+                </div>
+              </section>
+            </div>
           {:else}
             <div class="about">
               <header class="about-identity">
@@ -2454,6 +2702,8 @@
     color: Canvas;
     background: color-mix(in srgb, CanvasText 85%, Canvas);
     font-size: 12.5px;
+    /* Fixed elements escape <main>'s zoom scope, scale with it. */
+    zoom: var(--ui-zoom, 1);
   }
 
   .grid {
@@ -2466,13 +2716,27 @@
     border: 1px solid var(--rule);
     border-radius: 10px;
     background: var(--rule);
+    /* The 字体和颜色 pane writes these inline; each keeps a theme default so
+       an empty setting simply leaves the variable untouched. --cal-scale is
+       the text zoom: every size inside the grid multiplies by it, the way the
+       host scales its own UI. */
+    --cal-font: inherit;
+    --cal-scale: 1;
+    --cal-note: color-mix(in srgb, CanvasText 78%, transparent);
+    --cal-canvas: Canvas;
+    --cal-today: var(--accent);
+    --cal-selected: var(--select);
+    --cal-festival: var(--accent);
+    --cal-term: var(--select);
+    font-family: var(--cal-font);
+    font-size: calc(1rem * var(--cal-scale));
   }
 
   .weekday {
     padding: 7px 10px;
-    background: Canvas;
+    background: var(--cal-canvas);
     color: var(--muted);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cal-scale));
     font-weight: 500;
   }
 
@@ -2485,7 +2749,7 @@
     overflow: hidden;
     border: 0;
     border-radius: 0;
-    background: Canvas;
+    background: var(--cal-canvas);
     color: inherit;
     font: inherit;
     text-align: left;
@@ -2494,7 +2758,7 @@
     user-select: none;
   }
   .cell:hover {
-    background: color-mix(in srgb, var(--accent) 6%, Canvas);
+    background: color-mix(in srgb, var(--accent) 6%, var(--cal-canvas));
   }
   .cell:focus-visible {
     outline: 2px solid var(--accent);
@@ -2505,35 +2769,35 @@
     color: color-mix(in srgb, CanvasText 35%, transparent);
   }
   .cell.weekend {
-    background: color-mix(in srgb, var(--accent) 5%, Canvas);
+    background: color-mix(in srgb, var(--accent) 5%, var(--cal-canvas));
   }
   .cell.weekend:hover {
-    background: color-mix(in srgb, var(--accent) 10%, Canvas);
+    background: color-mix(in srgb, var(--accent) 10%, var(--cal-canvas));
   }
   /* Today is the one cell allowed to break the hairline grid, so it carries a
      solid ring plus a tint. Drawn inset because the 1px gaps leave no room for
      a real border without shifting the row, and left square-cornered because
      rounding would expose the rule colour behind the cell's own background. */
   .cell.today {
-    background: color-mix(in srgb, var(--accent) 11%, Canvas);
-    box-shadow: inset 0 0 0 2px var(--accent);
+    background: color-mix(in srgb, var(--cal-today) 11%, var(--cal-canvas));
+    box-shadow: inset 0 0 0 2px var(--cal-today);
   }
   .cell.today:hover {
-    background: color-mix(in srgb, var(--accent) 16%, Canvas);
+    background: color-mix(in srgb, var(--cal-today) 16%, var(--cal-canvas));
   }
   /* A search result is framed in amber, the way a date gets marked in a paper
      diary. The frame does the work, so the date and note keep their normal ink;
      today keeps its purple date pill but yields the frame to the selection. */
   .cell.selected {
-    background: color-mix(in srgb, var(--select) 7%, Canvas);
-    box-shadow: inset 0 0 0 2px var(--select);
+    background: color-mix(in srgb, var(--cal-selected) 7%, var(--cal-canvas));
+    box-shadow: inset 0 0 0 2px var(--cal-selected);
   }
   .cell.selected:hover {
-    background: color-mix(in srgb, var(--select) 11%, Canvas);
+    background: color-mix(in srgb, var(--cal-selected) 11%, var(--cal-canvas));
   }
   .cell.today.selected {
-    background: color-mix(in srgb, var(--select) 8%, Canvas);
-    box-shadow: inset 0 0 0 2px var(--select);
+    background: color-mix(in srgb, var(--cal-selected) 8%, var(--cal-canvas));
+    box-shadow: inset 0 0 0 2px var(--cal-selected);
   }
 
   .cell-head {
@@ -2547,10 +2811,10 @@
     display: grid;
     place-items: center;
     min-width: 20px;
-    height: 20px;
+    height: calc(20px * var(--cal-scale));
     padding: 0 4px;
     border-radius: 5px;
-    font-size: 12px;
+    font-size: calc(12px * var(--cal-scale));
     font-weight: 500;
   }
 
@@ -2558,21 +2822,29 @@
      loses the pill's fixed width and drops a size to sit beside the rest. */
   .date.month-day {
     min-width: 0;
-    height: 18px;
+    height: calc(18px * var(--cal-scale));
     padding: 0 5px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cal-scale));
     white-space: nowrap;
   }
 
-  /* Lunar date, solar term or festival name, sitting right of the day number. */
+  /* Lunar date, solar term or festival name, sitting right of the day number.
+     Festival and term days take their own colours from the appearance pane;
+     kind comes from dayInfo and only the visible layer sets it. */
   .lunar {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     color: var(--muted);
-    font-size: 11px;
+    font-size: calc(11px * var(--cal-scale));
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  .lunar.is-festival {
+    color: var(--cal-festival);
+  }
+  .lunar.is-term {
+    color: var(--cal-term);
   }
   .cell.outside .lunar {
     color: color-mix(in srgb, CanvasText 25%, transparent);
@@ -2584,12 +2856,12 @@
     display: grid;
     place-items: center;
     min-width: 15px;
-    height: 15px;
+    height: calc(15px * var(--cal-scale));
     padding: 0 3px;
     border-radius: 4px;
     color: CanvasText;
     background: color-mix(in srgb, CanvasText 16%, Canvas);
-    font-size: 10px;
+    font-size: calc(10px * var(--cal-scale));
     font-weight: 600;
   }
   .badge.off {
@@ -2603,11 +2875,11 @@
 
   .note {
     overflow: hidden;
-    font-size: 12px;
+    font-size: calc(12px * var(--cal-scale));
     line-height: 1.45;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    opacity: 0.78;
+    color: var(--cal-note);
     display: -webkit-box;
     -webkit-line-clamp: 4;
     line-clamp: 4;
@@ -2621,6 +2893,9 @@
     place-items: center;
     padding: 20px;
     background: color-mix(in srgb, #000 45%, transparent);
+    /* Fixed dialogs escape <main>'s zoom scope, so they scale themselves
+       with the same interface-zoom value. */
+    zoom: var(--ui-zoom, 1);
   }
   .search-backdrop {
     z-index: 30;
@@ -3174,22 +3449,22 @@
   .settings-tab {
     position: relative;
     display: grid;
-    grid-template-columns: 14px minmax(0, 1fr);
+    grid-template-columns: 16px minmax(0, 1fr);
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px 8px 13px;
+    gap: 9px;
+    padding: 9px 10px 9px 13px;
     border: 0;
     border-radius: 7px;
     color: color-mix(in srgb, CanvasText 70%, transparent);
     background: transparent;
     font: inherit;
-    font-size: 12.5px;
+    font-size: 14px;
     text-align: left;
     cursor: pointer;
   }
   .settings-tab-icon {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     background-color: color-mix(in srgb, CanvasText 45%, transparent);
     -webkit-mask: var(--icon) center / contain no-repeat;
     mask: var(--icon) center / contain no-repeat;
@@ -3443,6 +3718,58 @@
     color: var(--muted);
     font-size: 11.5px;
     line-height: 1.5;
+  }
+
+  /* Colour rows pair a native swatch with a reset affordance. The native
+     picker keeps the interaction familiar; the reset button only lights up
+     when a colour is actually set, so the theme default is one click away. */
+  .color-field {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+  }
+  .color-swatch {
+    width: 30px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: Canvas;
+    cursor: pointer;
+  }
+  .color-swatch::-webkit-color-swatch-wrapper {
+    padding: 2px;
+  }
+  .color-swatch::-webkit-color-swatch {
+    border: none;
+    border-radius: 3px;
+  }
+  .color-swatch:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .color-reset {
+    padding: 4px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    color: var(--muted);
+    background: Canvas;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .color-reset:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .color-reset:not(:disabled):hover {
+    color: CanvasText;
+    background: var(--tint);
+  }
+  .color-reset:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
 
   .switch {

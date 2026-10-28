@@ -20,6 +20,27 @@ export function hostLocale() {
   return bridge?.locale ?? bridge?.context?.locale ?? null;
 }
 
+/**
+ * The host theme snapshot carried on the bridge (`dbxPlugin.theme`), or null
+ * outside a host. Its `tokens` map carries the resolved design variables the
+ * host pushes with every theme change — `--font-sans` among them — so the
+ * calendar can follow the host's font setting instead of hardcoding a stack.
+ */
+export function hostTheme() {
+  return bridge?.theme ?? null;
+}
+
+/**
+ * Subscribes to host env pushes (`dbx-plugin-env`), the channel the host uses
+ * to announce locale and theme changes. Returns an unsubscribe function; in a
+ * plain browser tab there is nothing to subscribe to and this is a no-op.
+ */
+export function onHostEnv(handler) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("dbx-plugin-env", handler);
+  return () => window.removeEventListener("dbx-plugin-env", handler);
+}
+
 export async function whenReady() {
   if (!bridge) return null;
   try {
