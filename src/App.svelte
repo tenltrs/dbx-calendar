@@ -894,11 +894,24 @@
 
     const [y, m, d] = selectedDate.split("-").map(Number);
     const next = new Date(y, m - 1, d + days);
-    selectDate(keyOf(next.getFullYear(), next.getMonth(), next.getDate()));
+    const nextKey = keyOf(next.getFullYear(), next.getMonth(), next.getDate());
+    selectDate(nextKey);
 
-    // Follow the selection: a walk over an edge flips the month like the
-    // toolbar buttons do, so the highlighted cell is always on screen.
-    if (next.getMonth() !== viewMonth || next.getFullYear() !== viewYear) {
+    // Follow the selection so the highlighted cell stays on screen. In the
+    // floating frame the window is anchored to the view month (today's day
+    // sits on its row), so flipping a whole calendar month can slide the
+    // window away from the walked-to date; there the view shifts month by
+    // month in the walk direction until the grid actually contains it.
+    if (calendarStyle === "float") {
+      const dir = Math.sign(days);
+      for (let guard = 0; guard < 4; guard += 1) {
+        const window = buildFloatingWeeks(viewYear, viewMonth);
+        if (window.some((row) => row.some((cell) => cell.key === nextKey))) break;
+        const shifted = new Date(viewYear, viewMonth + dir, 1);
+        viewYear = shifted.getFullYear();
+        viewMonth = shifted.getMonth();
+      }
+    } else if (next.getMonth() !== viewMonth || next.getFullYear() !== viewYear) {
       viewYear = next.getFullYear();
       viewMonth = next.getMonth();
     }
