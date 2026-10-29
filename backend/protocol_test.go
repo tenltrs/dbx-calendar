@@ -52,7 +52,7 @@ func serve(t *testing.T, instance *plugin, requests ...string) map[int]map[strin
 	input := bytes.NewBufferString(strings.Join(requests, ""))
 	var output, errors bytes.Buffer
 	server := dbxpluginsdk.NewServer(
-		dbxpluginsdk.Metadata{ID: "com.tenltrs.dbx-calendar", Version: "0.1.8"},
+		dbxpluginsdk.Metadata{ID: "com.tenltrs.dbx-calendar", Version: "0.2.0"},
 		instance,
 	).WithIO(input, &output, &errors)
 	if err := server.Serve(); err != nil {

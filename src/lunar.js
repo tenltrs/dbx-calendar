@@ -147,8 +147,14 @@ function ordinal(value) {
  * A makeup workday (调休) keeps its lunar date rather than borrowing the holiday
  * name — 2026-09-20 is a Sunday worked for 国庆节, and labelling it 国庆节 would
  * read as if the holiday fell on that day.
+ *
+ * The three layers can be switched off one at a time in settings, so a hidden
+ * layer falls through to the next one instead of leaving the cell blank: turn
+ * solar terms off and a term day shows its lunar date, exactly as it would on
+ * any other day.
  */
-export function dayInfo(dateKey, lang = "zh") {
+export function dayInfo(dateKey, lang = "zh", layers = {}) {
+  const { festivals: showFestivals = true, terms: showTerms = true, lunar: showLunar = true } = layers;
   const en = lang === "en";
   const { festivals, terms } = yearIndex(Number(dateKey.slice(0, 4)));
 
@@ -161,20 +167,37 @@ export function dayInfo(dateKey, lang = "zh") {
   const festival = festivals.get(dateKey);
   const term = terms.get(dateKey);
 
-  let text;
-  if (festival) text = en ? (EN_FESTIVALS[festival] ?? festival) : festival;
-  else if (holiday) text = en ? (EN_HOLIDAYS[holiday] ?? holiday) : holiday;
-  else if (term) text = en ? (EN_TERMS[term] ?? term) : term;
-  else {
+  let text = "";
+  /** What the text names, so the cell can colour festival and term days
+   *  apart: "festival" (lunar), "holiday" (statutory), "term", "lunar". */
+  let kind = null;
+  if (showFestivals && festival) {
+    text = en ? (EN_FESTIVALS[festival] ?? festival) : festival;
+    kind = "festival";
+  } else if (showFestivals && holiday) {
+    text = en ? (EN_HOLIDAYS[holiday] ?? holiday) : holiday;
+    kind = "holiday";
+  } else if (showTerms && term) {
+    text = en ? (EN_TERMS[term] ?? term) : term;
+    kind = "term";
+  } else if (showLunar) {
     const { lunarDay, lunarDayCN, lunarMon, lunarMonCN, isLeap } = getLunarDate(dateKey);
     if (en) {
-      text = lunarDay === 1 ? `${isLeap ? "Leap " : ""}${ordinal(lunarMon)} Moon` : ordinal(lunarDay);
+      text = lunarDay === 1
+        ? `Lunar ${isLeap ? "leap " : ""}${ordinal(lunarMon)} Moon`
+        : ordinal(lunarDay);
     } else {
       // The library reports a leap month as plain 六月, which would collide with
       // the ordinary sixth month earlier in the year.
-      text = lunarDay === 1 ? (isLeap ? `闰${lunarMonCN}` : lunarMonCN) : lunarDayCN;
+      //
+      // The first day of a lunar month reads as the month name, and it carries
+      // the 农历 prefix so it can never be mistaken for a Gregorian month — the
+      // floating frame shows those in the same slot.
+      text = lunarDay === 1
+        ? `农历${isLeap ? "闰" : ""}${lunarMonCN}`
+        : lunarDayCN;
     }
   }
 
-  return { text, status: schedule ? (schedule.off ? "off" : "work") : null };
+  return { text, kind, status: schedule ? (schedule.off ? "off" : "work") : null };
 }

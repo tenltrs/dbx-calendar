@@ -12,8 +12,8 @@ Also available in [简体中文](README.zh-CN.md).
 
 - Month view with a weekday header row, weeks starting on Monday
 - Weekend columns tinted, days from the neighbouring months dimmed
-- Month navigation and a "Today" button
-- Today's cell is outlined and tinted
+- Month navigation and a "Today" button; the title names the selected day (or today until one is picked) and doubles as a date picker
+- Today's cell is outlined and tinted; its ring outranks the amber selection frame, so today never reads as "selected" — clicking "Today" clears the amber frame instead
 - The grid fills the panel height and scrolls internally
 
 **Each day cell**
@@ -39,10 +39,24 @@ Also available in [简体中文](README.zh-CN.md).
 - Dates the file and the calendar both carry are reported as conflicts, resolved by overwrite, skip, or merge
 - Import replaces the whole note set in one call, so a failure cannot leave a half-applied import behind
 
+**Settings**
+
+- The toolbar menu opens a settings sheet with a rail on the left: calendar, fonts and colours, and about
+- The calendar pane is grouped into style, cell style, display, festivals, and lunar calendar:
+  - Style picks a "full month" (always starting on the 1st) or a "floating month" (each page is a fixed five-week strip: paging continues from the previous page with no repeated or skipped days; "weeks above" keeps that many rows before the week containing today; the 1st of a month shows the month's name, and a lunar month's first day reads 农历X月)
+  - Cell style prefixes each note line with nothing, a running number, or a bullet dot; the editor continues the prefix on `Enter`. Prefixes are display-only — the note itself is saved without them
+  - Display can turn off the weekend tint and today marker; festivals can hide festival names and off/work badges; the lunar group can hide lunar dates and solar terms (a hidden layer falls through to the next)
+- The fonts-and-colours pane tunes the calendar appearance:
+  - Text: typeface (unset follows the host's font setting), font size (scales every piece of calendar text by a percentage), interface zoom (scales the whole panel: title, buttons, the grid and dialogs together)
+  - Colours: note text, calendar background, today border, selection border, festival text, and solar-term text; each can be reset to the theme default individually, and unset values follow the host theme
+- Preferences are persisted by the Go sidecar in `settings.json` under the plugin data directory, so they survive reinstalls and upgrades; `localStorage` acts as the cache and the fallback when the sidecar keeps no data directory, and a value read back from the sidecar always wins
+- The about pane reads the version, publisher, homepage and source from `manifest.json`
+- `Esc` or the close button dismisses it and returns focus to the toolbar menu
+
 **Host integration**
 
-- Follows the DBX host locale, Chinese or English
-- Uses the host's `Canvas` / `CanvasText` theme colours
+- Follows the DBX host locale, Chinese or English; a page opened outside DBX starts in Chinese
+- Uses the host's `Canvas` / `CanvasText` theme colours; the host's UI font token (`--font-sans`) reaches the calendar live and applies whenever the pane leaves the typeface unset
 
 ## Requirements
 
@@ -119,6 +133,7 @@ src/
 backend/
   main.go            sidecar entry point and the RPC method table
   notes.go           atomic per-namespace note storage
+  settings.go        atomic plugin preference storage
   export.go          writes the exported file wherever the user pointed it
   powershell.go      native save dialog, Explorer and the clipboard (Windows)
   datadir.go         resolves the host-provided data directory
