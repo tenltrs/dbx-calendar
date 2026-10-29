@@ -12,8 +12,8 @@ Also available in [简体中文](README.zh-CN.md).
 
 - Month view with a weekday header row, weeks starting on Monday
 - Weekend columns tinted, days from the neighbouring months dimmed
-- Month navigation and a "Today" button
-- Today's cell is outlined and tinted
+- Month navigation and a "Today" button; the title names the selected day (or today until one is picked) and doubles as a date picker
+- Today's cell is outlined and tinted; its ring outranks the amber selection frame, so today never reads as "selected" — clicking "Today" clears the amber frame instead
 - The grid fills the panel height and scrolls internally
 
 **Each day cell**

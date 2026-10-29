@@ -593,18 +593,14 @@
 
   const todayKey = keyOf(now.getFullYear(), now.getMonth(), now.getDate());
 
-  const monthTitle = $derived(
-    new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", {
-      year: "numeric",
-      month: "long",
-    }).format(new Date(viewYear, viewMonth, 1)),
-  );
-
-  /** The date the top-left trigger names: the amber selection, else today.
-   *  One source of truth, so the picker, the Today button and the grid all
-   *  agree on what the title says. */
+  /** The date the title and the picker pre-seed from: the amber selection,
+   *  else today. step() moves the selection onto each page, so this tracks
+   *  paging too; a click/search/picker choice names a specific day. */
   const titleDate = $derived(selectedDate ?? todayKey);
 
+  /** The title names the day the user last acted on — the amber selection,
+   *  else today. Paging never moves the selection, so the heading stays put
+   *  while pages slide; a click, a search hit or a picker choice re-names it. */
   const titleText = $derived(
     new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", {
       year: "numeric",
@@ -735,15 +731,18 @@
     return Array.from({ length: FLOAT_ROWS }, (_, row) =>
       Array.from({ length: 7 }, (_, col) => {
         const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + row * 7 + col);
+        const tomorrow = addDays(date, 1);
+        const isEdge = date.getDate() === 1 || tomorrow.getDate() === 1;
         return {
           key: keyOf(date.getFullYear(), date.getMonth(), date.getDate()),
           day: date.getDate(),
           inMonth: true,
           weekend: col >= 5,
-          /** The 1st of a month carries its month name instead of the bare
-           *  number: in a window that runs across months, "1" alone would not
-           *  say which month it opens. */
-          monthLabel: date.getDate() === 1
+          /** Month boundaries inside the page carry their month name instead
+           *  of the bare number: the 1st opens a month, the day before it
+           *  closes one — in a window that runs across months, "30" alone
+           *  would not say which month it ends. */
+          monthLabel: isEdge
             ? new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "long" }).format(date)
             : null,
         };
@@ -766,7 +765,10 @@
   /** Prev/next page. The full-month frame steps one calendar month; the
    *  floating frame slides its page start by exactly five weeks from the
    *  page on screen, so the next page opens on the day after the previous
-   *  page's last cell — dates never repeat or skip across pages. */
+   *  page's last cell — dates never repeat or skip across pages.
+   *
+   *  Paging never moves the selection: the amber frame and the title stay
+   *  on the day the user last acted on. */
   function step(delta) {
     if (calendarStyle === "float") {
       const nextStart = addDays(floatStart ?? floatHomeStart(), delta * FLOAT_ROWS * 7);
@@ -781,12 +783,13 @@
     focusSelectedCell();
   }
 
+  /** Back to the home view: today's page. The selection is cleared so today
+   *  shows only its own blue ring — the amber frame never outranks it here.
+   *  The title falls back to today when nothing is selected. */
   function goToday() {
     viewYear = now.getFullYear();
     viewMonth = now.getMonth();
-    // The title reads the selection, so "today" must claim it too — otherwise
-    // the trigger would keep naming a day the grid no longer shows.
-    selectDate(todayKey);
+    selectedDate = null;
     if (calendarStyle === "float") {
       // The home page is anchored on today's week, so it always shows today.
       floatStart = floatHomeStart();
@@ -815,8 +818,8 @@
 
   function openMonthPicker() {
     menuOpen = false;
-    // The year/month fields start from the title date (selection, else today)
-    // so the day grid opens on the month the user is already looking at.
+    // The year/month fields start from the selection (else today) — the day
+    // the user last acted on — so the day grid opens where they'd expect.
     const [y, m, d] = titleDate.split("-").map(Number);
     monthPickerYear = String(y);
     monthPickerMonth = m - 1;
@@ -1096,8 +1099,9 @@
 
   function openEditor(cell) {
     // Opening the editor is also an explicit choice of that day, so it takes
-    // the same amber selection as a search result.
-    selectDate(cell.key);
+    // the same amber selection as a search result — except today, whose own
+    // blue ring outranks the amber frame and stays unselected.
+    if (cell.key !== todayKey) selectDate(cell.key);
     editingKey = cell.key;
     // Prefixes are part of the editing surface, not the note: showing them here
     // keeps the textarea and the cell reading the same, and stripping them on
@@ -2018,7 +2022,9 @@
             // user needs to point at a date. The editor still needs the double
             // click. Keyboard activation reports detail 0 and never fires
             // dblclick, so Enter/Space opens the editor directly.
-            selectDate(cell.key);
+            // Today is the exception: its own blue ring outranks the amber
+            // frame, so clicking it never starts an amber selection.
+            if (cell.key !== todayKey) selectDate(cell.key);
             if (event.detail === 0) openEditor(cell);
           }}
         >
@@ -3115,8 +3121,9 @@
     background: color-mix(in srgb, var(--cal-today) 16%, var(--cal-canvas));
   }
   /* A search result is framed in amber, the way a date gets marked in a paper
-     diary. The frame does the work, so the date and note keep their normal ink;
-     today keeps its purple date pill but yields the frame to the selection. */
+     diary. The frame does the work, so the date and note keep their normal ink.
+     When both apply to today, today's own blue ring wins: the amber frame only
+     ever marks "a date you jumped to", and today is already home. */
   .cell.selected {
     background: color-mix(in srgb, var(--cal-selected) 7%, var(--cal-canvas));
     box-shadow: inset 0 0 0 2px var(--cal-selected);
@@ -3125,8 +3132,8 @@
     background: color-mix(in srgb, var(--cal-selected) 11%, var(--cal-canvas));
   }
   .cell.today.selected {
-    background: color-mix(in srgb, var(--cal-selected) 8%, var(--cal-canvas));
-    box-shadow: inset 0 0 0 2px var(--cal-selected);
+    background: color-mix(in srgb, var(--cal-today) 11%, var(--cal-canvas));
+    box-shadow: inset 0 0 0 2px var(--cal-today);
   }
 
   .cell-head {

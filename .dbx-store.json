@@ -7,5 +7,5 @@
   "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.2.0",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
-  "releaseNotes": "The floating month style is rebuilt as one continuous five-week strip: paging walks on from the previous page with no repeated or skipped days, the weeks-above setting keeps that many rows before the week containing today, and jumping or arrowing to a date simply turns the strip to the page holding it. The month title now doubles as a date picker — pick a year, a month and a day to jump straight there."
+  "releaseNotes": "A full settings panel arrives: calendar styles (a classic full month or a floating five-week strip), cell styles (per-line numbering or bullets), fonts, sizes, and colors for the calendar, today ring, selection, festivals and solar terms — all persisted through the plugin's sidecar and preserved across upgrades. Notes gain instant search with highlighted matches and a date picker in the month title for jumping straight to any day."
 }
