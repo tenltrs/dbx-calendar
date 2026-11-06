@@ -117,7 +117,7 @@ dbx-plugin package .   # 编译 sidecar 并生成 dist/*.dbxp
 
 农历、24 节气、传统节日都是可计算的，任意年份都能得到，来自 [`chinese-days`](https://www.npmjs.com/package/chinese-days)。
 
-法定节假日和调休由国务院每年公布，`chinese-days` 携带到 2026 年的安排。[`src/lunar.js`](src/lunar.js) 会探测当前渲染年份在该库里是否存在安排：有则每个格子额外显示 `休` / `班` 角标，没有则只显示农历与节气。
+法定节假日和调休由国务院每年公布，`chinese-days` 携带到 2027 年的安排。[`src/lunar.js`](src/lunar.js) 会探测当前渲染年份在该库里是否存在安排：有则每个格子额外显示 `休` / `班` 角标，没有则只显示农历与节气。
 
 这里刻意不做任何兜底数据源。库里没有的年份就是没有节假日角标；下一年的安排通过升级依赖获得。
 

@@ -117,7 +117,7 @@ Publishing a GitHub release triggers `.github/workflows/plugin-release.yml`. Eac
 
 Lunar dates, the 24 solar terms and traditional festivals are computed and available for any year. They come from [`chinese-days`](https://www.npmjs.com/package/chinese-days).
 
-Public holidays and 调休 makeup workdays are published by the State Council each year, and `chinese-days` carries that schedule up to 2026. [`src/lunar.js`](src/lunar.js) probes the library for the year it is rendering: when the library has a schedule, each cell also shows its `休` / `班` marker; when it does not, the cell shows its lunar date and solar term only.
+Public holidays and 调休 makeup workdays are published by the State Council each year, and `chinese-days` carries that schedule up to 2027. [`src/lunar.js`](src/lunar.js) probes the library for the year it is rendering: when the library has a schedule, each cell also shows its `休` / `班` marker; when it does not, the cell shows its lunar date and solar term only.
 
 There is deliberately no fallback data source. A year the library does not carry simply has no holiday markers, and the next year's arrangement arrives by upgrading the dependency.
 

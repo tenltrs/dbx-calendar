@@ -4,8 +4,8 @@
   "icon": "assets/icon.svg",
   "tags": ["calendar", "memo", "notes", "workflow", "to-do"],
   "permissions": [],
-  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.2.0",
+  "source": "https://github.com/tenltrs/dbx-calendar/tree/v0.2.1",
   "homepage": "https://github.com/tenltrs/dbx-calendar/",
   "license": "Apache-2.0",
-  "releaseNotes": "A full settings panel arrives: calendar styles (a classic full month or a floating five-week strip), cell styles (per-line numbering or bullets), fonts, sizes, and colors for the calendar, today ring, selection, festivals and solar terms — all persisted through the plugin's sidecar and preserved across upgrades. Notes gain instant search with highlighted matches and a date picker in the month title for jumping straight to any day."
+  "releaseNotes": "Public-holiday and makeup-workday arrangements now extend through 2027, so next year's Spring Festival, National Day and every 调休 day already show their 休 / 班 markers. Years the library does not carry keep showing lunar dates and solar terms without holiday badges."
 }
